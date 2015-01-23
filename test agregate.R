@@ -1,0 +1,6 @@
+(DF <- c(1,2,3,NA,4,5))
+(DF1 <- c(1,2,3,6,4,5))
+(by1 <- rep(c("a","b","c"),each=2))
+(by2 <- rep(c("Z","X"),3))
+testDF <- data.frame(DF,DF1,by1,by2)
+aggregate(.~ by1,data = testDF,sum,na.action=NULL,na.rm=T)
