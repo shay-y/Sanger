@@ -2,7 +2,7 @@
 title: "Sanger Rare Event Data Analysis."
 author: "S.Y"
 date: "Tuesday, January 12, 2015"
-output: pdf_document
+output: pdf_document 
 ---
 
 **Notes:**
