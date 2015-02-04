@@ -60,23 +60,7 @@ n_u_minus_n <- aggregate(. ~ Genotype2 ,data = ZO_data1,subset = Genotype2 =="WT
 ```
 
 ```{r print_2x2_tables, include=FALSE} 
-## print 2X2 table for outcome j and KO i:
-ptable <- function(i,j)
-{
-  n_u1 <- n_u_minus_n[1,3+j]+n[i,3+j]
-  N1 <- N_minus_n_t[1,3+j] + n_t[i,3+j]
-  n_t1 <- n_t[i,3+j]
-  n1  <- n[i,3+j]
-  tb <- matrix(c(n1     ,n_u1-n1       ,  n_u1,
-               n_t1-n1,N1-n_t1-n_u1+n1,N1-n_u1,
-               n_t1   ,N1-n_t1        ,N1),
-               nrow=3,ncol=3,byrow=T)
-  dimnames(tb) <- list("Defected"=c("Y","N","TOTAL"),
-                       "Group"=c("KO","WT","TOTAL"))
-  tbna <- matrix(c(na_KO[i,3+j],na_WT[1,3+j],na_KO[i,3+j]+na_WT[i,3+j]),nrow=1,ncol=3,byrow=T)
-  dimnames(tbna) <- list("#NAs","Group"=c("KO","WT","TOTAL"))
-  return(tb)
-}
+
 
 ```
 
@@ -139,9 +123,11 @@ Pi_0_est_EU <- function(p,f_n,kappa,in_fam,lambda)
   return(Pi_0_hat_EU)
 }
 
+# pi0 estimation
 pi_0_est_rand <- function(p_rand, in_fam, lambda)
   sum(lambda<p_rand[in_fam])/(1-lambda)/sum(in_fam)
 
+# adaptive BH  
 p_adjust_adaptive <- function(p,pi_0_hat)
 {
   lp <- length(p)
@@ -150,9 +136,28 @@ p_adjust_adaptive <- function(p,pi_0_hat)
   ro <- order(o)
   pmin(1, cummin(lp*pi_0_hat/i * p[o]))[ro]
 }
+
+## print 2X2 table for outcome j and KO i:
+ptable <- function(i,j)
+{
+  n_u1 <- n_u_minus_n[1,3+j]+n[i,3+j]
+  N1 <- N_minus_n_t[1,3+j] + n_t[i,3+j]
+  n_t1 <- n_t[i,3+j]
+  n1  <- n[i,3+j]
+  tb <- matrix(c(n1     ,n_u1-n1       ,  n_u1,
+               n_t1-n1,N1-n_t1-n_u1+n1,N1-n_u1,
+               n_t1   ,N1-n_t1        ,N1),
+               nrow=3,ncol=3,byrow=T)
+  dimnames(tb) <- list("Defected"=c("Y","N","TOTAL"),
+                       "Group"=c("KO","WT","TOTAL"))
+  tbna <- matrix(c(na_KO[i,3+j],na_WT[1,3+j],na_KO[i,3+j]+na_WT[i,3+j]),nrow=1,ncol=3,byrow=T)
+  dimnames(tbna) <- list("#NAs","Group"=c("KO","WT","TOTAL"))
+  return(tb)
+}
+
 ```
 
-```{r main_all_outcomes, echo=F, include=FALSE,eval=FALSE}
+```{r all_outcomes_together, echo=F, include=FALSE,eval=FALSE}
 # ---------------- get statistics and pv: --------------------------------
 
 ## work with phyper() notation:
@@ -224,6 +229,7 @@ cat(iter,"\n")
 if (A_size_F == sum(alpha_star <= threshold)) break
 in_fam <- alpha_star <= threshold
 A_size_F <- sum(in_fam)
+if (A_size_F==0) break
 A_Pi_0_hat_EU <- Pi_0_est_EU(p = p,f_n = f_n,kappa = kappa,in_fam = in_fam,lambda = lambda)
 A_m1_hat <- A_size_F*(1-A_Pi_0_hat_EU)
 threshold <- A_m1_hat/A_size_F*0.05/0.95
@@ -243,27 +249,17 @@ fam_size <- c(length(p),size_F_0.05,K,size_F_new,A_size_F)
 pi_0_all  <-  pi_0_est_rand(p_rand = p_rand, in_fam = rep(T,length(p_rand)),lambda = lambda)
 pa_BH              <- p_adjust_adaptive(p = p, pi_0_hat = pi_0_all)
 
-## BH on "minimum attainable pv" ( alpha_star) smaller than 0.05:
-F_0.05             <- alpha_star<=0.05
-size_F_0.05        <- sum(F_0.05)
 pi_0_0.05      <- pi_0_est_rand(p_rand = p_rand, in_fam = F_0.05,lambda = lambda)
 pa_BH_0.05         <- rep(1,length(F_0.05))
 pa_BH_0.05[F_0.05] <- p_adjust_adaptive(p = p[F_0.05], pi_0_hat = pi_0_0.05)
 
-## BH on Tarone family:
-K               <- 12125 #findK(alpha_star)
-F_Gilb          <- alpha_star<=0.05/K
 pi_0_Tar   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_Gilb,lambda = lambda)
 pa_Gilb         <- rep(1,length(F_Gilb))
 pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p[F_Gilb], pi_0_hat = pi_0_Tar)
 
-## estimation of m1 for each sub-family thresholded by alpha_star
-
 pi_0_new   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_new,lambda = lambda)
 pa_new         <- rep(1,length(F_new))
 pa_new[F_new] <- p_adjust_adaptive(p = p[F_new], pi_0_hat = pi_0_new)
-
-## estimation of m1 for each sub-family thresholded by alpha_star
 
 pi_0_newA   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_newA,lambda = lambda)
 pa_newA         <- rep(1,length(F_newA))
@@ -327,9 +323,9 @@ c6 <- c(sum(pa_BH<=0.05),sum(pa_BH_0.05<=0.05),sum(pa_Gilb<=0.05),sum(pa_new<=0.
 # ---------- Adjustment 7-8 p randomized 2 -------------------
 set.seed(3)
 u <- runif(n=length(f_n))
-p_rand_1 <- p-u*kappa*f_n
+p_rand_2 <- p-u*kappa*f_n
 
-p_ <- p_rand_1
+p_ <- p_rand_2
 pa_BH              <- p.adjust(p_,"BH")
 pa_BH_0.05         <- rep(1,length(F_0.05))
 pa_BH_0.05[F_0.05] <- p.adjust(p_[F_0.05],"BH")
@@ -353,10 +349,11 @@ c8 <- c(sum(pa_BH<=0.05),sum(pa_BH_0.05<=0.05),sum(pa_Gilb<=0.05),sum(pa_new<=0.
 #
 tb_all <- cbind(fam_size,pi0,c1,c2,c3,c4,c5,c6,c7,c8)
 save(tb_all,file="tb_all.RData")
+
 ```
 
 ```{r main_function, include=FALSE,eval=FALSE}
-proc1 <- function()
+proc1 <- function(j)
 {
 # ---------------- get statistics and pv: --------------------------------
 
@@ -408,7 +405,6 @@ for (k in 1:length(t))
   Pi_0_hat_EU <- Pi_0_est_EU(p = p,f_n = f_n,kappa = kappa,in_fam = in_fam,lambda = lambda)
   m1_hat[k] <- size_F[k]*(1-Pi_0_hat_EU)
   p1_hat[k] <- (1-Pi_0_hat_EU)
-  #if (!(k%%100)) cat(k,"\n")
 }
 
 m1_hat_mat <<- cbind(m1_hat_mat,m1_hat)
@@ -456,27 +452,21 @@ pi_0_all  <-  pi_0_est_rand(p_rand = p_rand, in_fam = rep(T,length(p_rand)),lamb
 pa_BH              <- p_adjust_adaptive(p = p, pi_0_hat = pi_0_all)
 
 ## BH on "minimum attainable pv" ( alpha_star) smaller than 0.05:
-F_0.05             <- alpha_star<=0.05
-size_F_0.05        <- sum(F_0.05)
 pi_0_0.05      <- pi_0_est_rand(p_rand = p_rand, in_fam = F_0.05,lambda = lambda)
 pa_BH_0.05         <- rep(1,length(F_0.05))
 pa_BH_0.05[F_0.05] <- p_adjust_adaptive(p = p[F_0.05], pi_0_hat = pi_0_0.05)
 
 ## BH on Tarone family:
-K               <- 12125 #findK(alpha_star)
-F_Gilb          <- alpha_star<=0.05/K
 pi_0_Tar   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_Gilb,lambda = lambda)
 pa_Gilb         <- rep(1,length(F_Gilb))
 pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p[F_Gilb], pi_0_hat = pi_0_Tar)
 
 ## estimation of m1 for each sub-family thresholded by alpha_star
-
 pi_0_new   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_new,lambda = lambda)
 pa_new         <- rep(1,length(F_new))
 pa_new[F_new] <- p_adjust_adaptive(p = p[F_new], pi_0_hat = pi_0_new)
 
 ## estimation of m1 for each sub-family thresholded by alpha_star
-
 pi_0_newA   <- pi_0_est_rand(p_rand = p_rand, in_fam = F_newA,lambda = lambda)
 pa_newA         <- rep(1,length(F_newA))
 pa_newA[F_newA] <- p_adjust_adaptive(p = p[F_newA], pi_0_hat = pi_0_newA)
@@ -539,9 +529,9 @@ c6 <- c(sum(pa_BH<=0.05),sum(pa_BH_0.05<=0.05),sum(pa_Gilb<=0.05),sum(pa_new<=0.
 # ---------- Adjustment 7-8 p randomized 2 -------------------
 set.seed(300*j)
 u <- runif(n=length(f_n))
-p_rand_1 <- p-u*kappa*f_n
+p_rand_2 <- p-u*kappa*f_n
 
-p_ <- p_rand_1
+p_ <- p_rand_2
 pa_BH              <- p.adjust(p_,"BH")
 pa_BH_0.05         <- rep(1,length(F_0.05))
 pa_BH_0.05[F_0.05] <- p.adjust(p_[F_0.05],"BH")
@@ -580,7 +570,7 @@ for (i in 3+(1:43))
   vec_n = n[,i]
   vec_N_minus_n_t = N_minus_n_t[,i]
   vec_n_t = n_t[,i]
-  tb[[i]] <- proc1()
+  tb[[i]] <- proc1(i)
   cat(i,"\n")
   }
 save(tb,file="tb_each.RData")
@@ -616,13 +606,12 @@ XrayVariableList <- c("Number.Of.Thoracic.Vertebrae","Number.Of.Lumbar.Vertebrae
 ## remove 3 variables with no values:
 XrayVariableList_c <- XrayVariableList[!(XrayVariableList %in% c("Spinous.Processes","Transverse.Processes","Processes.On.Vertebrae"))]
 
-
 for (k in 3+(1:43))
   {
-  cat("\n",XrayVariableList_c[k-3],"\n")
+ 
   colnames(tb[[k]]) <- c("|F|","pi_0","non","non-adpt","mid","mid-adpt","r1","r1-adpt","r2","r2-adpt")
 rownames(tb[[k]]) <- c("BH","BH_0.05","Gilbert","m1est1","m1est2")
-  kable(as.data.frame(tb[[k]]),digits = 4)
+  print(kable(as.data.frame(tb[[k]]),digits = 4))
   }
 
 ```
@@ -644,5 +633,14 @@ for (j in 1:43)
   if (j==1) legend("topleft",lty=1,c("0.05","Tarone","m1est1","m1est2"),col=2:5)
   }
 #plot(p1_hat_mat[,j+1],type="l",main="p1 estimates")
+tbt <- matrix(0,ncol=10,nrow=5)
+for (i in 3+(1:43))
+  {
+  tbt <- tbt+tb[[i]]
+  tb_all
+
+
+lapply(tb,function(x))
+
 
 ```
