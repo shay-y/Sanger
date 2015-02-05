@@ -1,16 +1,20 @@
 ---
-title: "Sanger Rare Event Data Analysis."
-author: "S.Y"
+title: "Title"
+author: "R.H; S.Y "
 date: "Tuesday, Feb 03, 2015"
 output:
   pdf_document:
-    fig_height: 8
+    fig_height: 11
     fig_width: 8
     number_sections: yes
-    toc: yes
 ---
 
-```{r, read_data,echo=FALSE,include=FALSE,eval=FALSE}
+```{r knitr_options, include=FALSE}
+library(knitr)
+opts_chunk$set(include = FALSE,echo = FALSE, eval = FALSE)
+```
+
+```{r read_data}
 rm(list = ls())
 ## read 0\1 data:
 ZO_data <- read.csv(file = "Oct29_2014_Xray_B6N_MGPSelect_Oor1_cleanV2.csv") # 8176 rows ,79 columns 
@@ -59,12 +63,7 @@ n_u_minus_n <- aggregate(. ~ Genotype2 ,data = ZO_data1,subset = Genotype2 =="WT
 ## B   - last value in the support of HG distribution, is min{n_t,n_u} - the minimum between total faults in both groups and tested mice in KO group
 ```
 
-```{r print_2x2_tables, include=FALSE} 
-
-
-```
-
-```{r aggregate_over_all_outcomes,echo=FALSE,include=FALSE,eval=FALSE}
+```{r aggregate_over_all_outcomes}
 ## reshape data for analysis of all KO together
 vec_n_t         <- as.vector(as.matrix(n_t[-(1:3)]))
 vec_na_KO       <- as.vector(as.matrix(na_KO[-(1:3)]))
@@ -92,7 +91,7 @@ vec_n_u_minus_n <- rep(as.vector(as.matrix(n_u_minus_n[-(1:3)])),each=nrow(n))
 
 ```
 
-```{r functions, echo=F, include=FALSE,eval=FALSE}
+```{r functions}
 # ---------------- functions and parameters: --------------------------------
 lambda <- 0.05
 
@@ -157,7 +156,7 @@ ptable <- function(i,j)
 
 ```
 
-```{r all_outcomes_together, echo=F, include=FALSE,eval=FALSE}
+```{r all_outcomes_together}
 # ---------------- get statistics and pv: --------------------------------
 
 ## work with phyper() notation:
@@ -352,7 +351,7 @@ save(tb_all,file="tb_all.RData")
 
 ```
 
-```{r main_function, include=FALSE,eval=FALSE}
+```{r main_function}
 proc1 <- function(j)
 {
 # ---------------- get statistics and pv: --------------------------------
@@ -561,7 +560,7 @@ return(cbind(fam_size,pi0,c1,c2,c3,c4,c5,c6,c7,c8))
 
 ```
 
-```{r main_function_exe, include=FALSE,eval=FALSE}
+```{r main_function_exe}
 tb <- list(NA)
 m1_hat_mat <- p1_hat_mat <- 1
 for (i in 3+(1:43))
@@ -577,9 +576,7 @@ save(tb,file="tb_each.RData")
 save(m1_hat_mat,p1_hat_mat,file="m1_p1_mats.RData")
 ```
 
-```{r results, echo=FALSE,results='asis'}
-library(knitr)
-
+```{r print_tables, include = T, eval = T, results='asis'}
 load("tb_all.RData")
 load("tb_each.RData")
 load("m1_p1_mats.RData")
@@ -600,6 +597,13 @@ rownames(tb_all) <- c("BH","BH_0.05","Gilbert","m1est1","m1est2")
 cat("\n All: \n")
 kable(data.frame(tb_all),digits=4)
 
+cat("\n Total of 'each' analysis: \n")
+tbt <- matrix(0,ncol=10,nrow=5)
+for (i in 3+(1:43))
+  tbt <- tbt+tb[[i]]
+kable(data.frame(tbt),digits=4)
+
+
 ## 46 variables of interest:
 XrayVariableList <- c("Number.Of.Thoracic.Vertebrae","Number.Of.Lumbar.Vertebrae","Number.Of.Pelvic.Vertebrae","Number.Of.Caudal.Vertebrae", "Transitional.Vertebrae" , "Shape.Of.Vertebrae","Fusion.Of.Vertebrae", "Processes.On.Vertebrae","Maxilla","Zygomatic.Bone","Number.Of.Cervical.Vertebrae","Skull.Shape","Number.Of.Ribs.Right","Number.Of.Ribs.Left","Shape.Of.Ribcage","Shape.Of.Ribs","Rib.Fusions","Clavicle","Scapula"  ,"Humerus","Radius","Ulna","Pelvis","Femur","Tibia","Fibula","Joints","Shape.Of.Spine","Teeth","Mandible","Number.Of.Digits","Digit.Integrity","Syndactylism","Polysyndactylism","Brachydactylism","Kyphosis","Lordosis","Scoliosis","Spinous.Processes","Transverse.Processes","Fusion.Processes","Caudal.Processes","Cervical.Processes","Lumbar.Processes","Sacral.Processes","Thoracic.Processes")    
 
@@ -616,8 +620,7 @@ rownames(tb[[k]]) <- c("BH","BH_0.05","Gilbert","m1est1","m1est2")
 
 ```
 
-
-```{r plots, fig.height=11,fig.width=8,echo=FALSE}
+```{r plots, include = T, eval = T}
 ## plots:
 # par(mfrow=c(3,3))
 # plot(sort(alpha_star),type="l",main="sorted alpha star")
@@ -633,14 +636,4 @@ for (j in 1:43)
   if (j==1) legend("topleft",lty=1,c("0.05","Tarone","m1est1","m1est2"),col=2:5)
   }
 #plot(p1_hat_mat[,j+1],type="l",main="p1 estimates")
-tbt <- matrix(0,ncol=10,nrow=5)
-for (i in 3+(1:43))
-  {
-  tbt <- tbt+tb[[i]]
-  tb_all
-
-
-lapply(tb,function(x))
-
-
 ```
