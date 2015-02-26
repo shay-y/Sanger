@@ -17,30 +17,36 @@ opts_chunk$set(include = FALSE,echo = FALSE, eval = FALSE)
 ```
 
 ```{r read_data}
-## read 0\1 data:
-ZO_data <- tbl_df(read.csv(file = "Oct29_2014_Xray_B6N_MGPSelect_Oor1_cleanV2.csv"))
-
 ## 46 variables of interest:
 XrayVariableList <- c("Number.Of.Thoracic.Vertebrae","Number.Of.Lumbar.Vertebrae","Number.Of.Pelvic.Vertebrae","Number.Of.Caudal.Vertebrae", "Transitional.Vertebrae" , "Shape.Of.Vertebrae","Fusion.Of.Vertebrae", "Processes.On.Vertebrae","Maxilla","Zygomatic.Bone","Number.Of.Cervical.Vertebrae","Skull.Shape","Number.Of.Ribs.Right","Number.Of.Ribs.Left","Shape.Of.Ribcage","Shape.Of.Ribs","Rib.Fusions","Clavicle","Scapula"  ,"Humerus","Radius","Ulna","Pelvis","Femur","Tibia","Fibula","Joints","Shape.Of.Spine","Teeth","Mandible","Number.Of.Digits","Digit.Integrity","Syndactylism","Polysyndactylism","Brachydactylism","Kyphosis","Lordosis","Scoliosis","Spinous.Processes","Transverse.Processes","Fusion.Processes","Caudal.Processes","Cervical.Processes","Lumbar.Processes","Sacral.Processes","Thoracic.Processes")
 
 ## remove 3 variables with no values:
 XrayVariableList_c <- XrayVariableList[!c(XrayVariableList %in% c("Spinous.Processes","Transverse.Processes","Processes.On.Vertebrae"))]
 
-f <- function(x){ sum(is.na(x))}
+## read 0\1 data:
+ZO_data <- tbl_df(read.csv(file = "Oct29_2014_Xray_B6N_MGPSelect_Oor1_cleanV2.csv"))
 
 (ZO_data1 <- ZO_data %>%
+   
    ## keep variables of interest only and 3 indices : 
    select(one_of(c("Colony.Prefix","Genotype2","Gender",XrayVariableList_c))) %>%  
+   
    ## reshape the data from wide (outcomes in 43 columns) to long (outcomes as variable)  
    gather(Outcome,zo,-Colony.Prefix,-Genotype2,-Gender) %>% 
-   ## create "group" variable to contain the data from both "Genotype2" & "Colony.Prefix" :
+   
+   ## create "group" variable containing the data from both "Genotype2" & "Colony.Prefix" :
    mutate(Group = as.factor(ifelse(Genotype2 == "WT","WT",paste0(Colony.Prefix,"_",Genotype2)))) %>%
+   
    ## drop "Genotype2" & "Colony.Prefix" : 
    mutate(Genotype2 = NULL, Colony.Prefix = NULL) %>%
+   
    ## group by ...
    group_by(Outcome,Gender,Group) %>% 
+   
    ## and summarise sums, counts and NAs:
-   summarise(s = sum(),n = n() , NAs = sum(is.na(zo))))
+   summarise(s = sum(zo,na.rm = T),n = sum(!is.na(zo)) , NAs = sum(is.na(zo))))
+
+
 
 KOs_only <- filter(ZO_data1, Group != "WT")
 WTs_only <- filter(ZO_data1, Group == "WT")
@@ -48,90 +54,25 @@ FM_together <- full_join(KOs_only,WTs_only,by = c("Outcome","Gender"))
 
 F_only <- filter(FM_together, Gender == "Female")
 M_only <- filter(FM_together, Gender == "Male")
+
 tbl_222 <- full_join(F_only,M_only,by = c("Outcome","Group.x","Group.y")) %>% 
+  ungroup() %>% 
   select(Outcome, Group = Group.x,
          n111 = s.x.x, n.11 = n.x.x, n121 = s.y.x, n.21 = n.y.x,
-         n112 = s.x.y, n.12 = n.x.y, n122 = s.y.y, n.21 = n.y.y)
+         n112 = s.x.y, n.12 = n.x.y, n122 = s.y.y, n.22 = n.y.y) %>% 
+  mutate(n211 = n.11 - n111, n221 = n.21 - n121,
+         n212 = n.12 - n112, n222 = n.22 - n122)
 
-## # of mices in KO
-n.1.     <- aggregate(. ~ Genotype2 + Colony.Prefix + Gender, data = ZO_data1, subset = Genotype2 !="WT",function(x) sum(!is.na(x)),na.action=NULL)
+tbl_222[is.na(tbl_222)] <- 0
 
-n.11_and_n.12 <- merge(x = n.1.[n.1.$Gender=="Male",],y = n.1.[n.1.$Gender=="Female",],by = c("Colony.Prefix","Genotype2"), all = T, suffixes = c(".Male",".Female"),sort = T)
-
-## # of NAs in KO
-n.1._NA <- aggregate(. ~ Genotype2 + Colony.Prefix + Gender, data = ZO_data1, subset = Genotype2 !="WT", function(x) sum(is.na(x)),na.action=NULL)
-
-n.11_and_n.12_NA <- merge(x = n.1._NA[n.1._NA$Gender=="Male",],y = n.1._NA[n.1._NA$Gender=="Female",],by = c("Colony.Prefix","Genotype2"), all = T, suffixes = c(".Male",".Female"),sort = T)
-
-## # of deformed in KO
-n11. <- aggregate(. ~ Genotype2 + Colony.Prefix + Gender,data = ZO_data1,subset = Genotype2 !="WT",sum, na.action=NULL, na.rm=T)
-
-n111_and_n112 <- merge(x = n11.[n11.$Gender=="Male",],y = n11.[n11.$Gender=="Female",],by = c("Colony.Prefix","Genotype2"), all = T, suffixes = c(".Male",".Female"),sort = T)
-
-## # of mices in WT
-n.2. <- aggregate(. ~ Genotype2 + Gender,data = ZO_data1,subset = Genotype2 =="WT",                 function(x) sum(!is.na(x)),na.action=NULL)
-
-n.21_and_n.22 <- merge(x = n.2.[n.2.$Gender=="Male",],y = n.2.[n.2.$Gender=="Female",],by = "Genotype2", all = T, suffixes = c(".Male",".Female"),sort = T)
-
-## # of NAs in WT
-n.2._NA <- aggregate(. ~ Genotype2 + Gender,data = ZO_data1,subset = Genotype2 =="WT",
-                         function(x) sum(is.na(x)),na.action=NULL)
-
-n.21_and_n.22_NA <- merge(x = n.2._NA[n.2._NA$Gender=="Male",],y = n.2._NA[n.2._NA$Gender=="Female",],by = "Genotype2", all = T, suffixes = c(".Male",".Female"),sort = T)
-
-## # of deformed in WT groups
-n12. <- aggregate(. ~ Genotype2 + Gender,data = ZO_data1,subset = Genotype2 =="WT",
-                         sum, na.action=NULL, na.rm=T)
-
-n121_and_n122 <- merge(x = n12.[n12.$Gender=="Male",],y = n12.[n12.$Gender=="Female",],by = "Genotype2", all = T, suffixes = c(".Male",".Female"),sort = T)
-
-
-# ---------------- reshape data for OUTCOMEs to appear in one column together: ---------
-
-vec_n.11_and_n.12    <- cbind(as.vector(as.matrix(n.11_and_n.12[,4:46])),
-                              as.vector(as.matrix(n.11_and_n.12[,48:90])))
-vec_n.11_and_n.12_NA <- cbind(as.vector(as.matrix(n.11_and_n.12_NA[,4:46])),
-                              as.vector(as.matrix(n.11_and_n.12_NA[,48:90])))
-vec_n111_and_n112    <- cbind(as.vector(as.matrix(n111_and_n112[,4:46])),
-                              as.vector(as.matrix(n111_and_n112[,48:90])))
-vec_n.21_and_n.22    <- cbind(rep(as.vector(as.matrix(n.21_and_n.22[,4:46])),each=nrow(n111_and_n112)),
-                              rep(as.vector(as.matrix(n.21_and_n.22[,48:90])),each=nrow(n111_and_n112)))
-vec_n.21_and_n.22_NA <- cbind(rep(as.vector(as.matrix(n.21_and_n.22_NA[,4:46])),each=nrow(n111_and_n112)),
-                              rep(as.vector(as.matrix(n.21_and_n.22_NA[,48:90])),each=nrow(n111_and_n112)))
-vec_n121_and_n122    <- cbind(rep(as.vector(as.matrix(n121_and_n122[,4:46])),each=nrow(n111_and_n112)),
-                              rep(as.vector(as.matrix(n121_and_n122[,48:90])),each=nrow(n111_and_n112)))
-# ---------------- reshape data each 2X2X2 table in a row: ---------
-
-tbl_2X2X2 <-  cbind(vec_n111_and_n112[,1], vec_n.11_and_n.12[,1]-vec_n111_and_n112[,1],
-              vec_n121_and_n122[,1], vec_n.21_and_n.22[,1]-vec_n121_and_n122[,1],
-              vec_n111_and_n112[,2], vec_n.11_and_n.12[,2]-vec_n111_and_n112[,2],
-              vec_n121_and_n122[,2], vec_n.21_and_n.22[,2]-vec_n121_and_n122[,2])
-
-tbl_2X2X2[is.na(tbl_2X2X2)] <- 0
-
-summary(tbl_2X2X2)
-
-# z_format <- array(c("n111", "n211", "n121", "n221","n112", "n212", "n122", "n222"), dim=c(2, 2, 2))
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-## 2X2 contingency tables:
-
-# older natation:
-# |  |1-deformed|0 |    |
-# |--|:--:|:--:|:--:|
-# |KO|$n$ |$n1..-n$|$n1..$|
-# |WT|$n_u-n$|$N-n1..-n_u+n$|$N-n1..$|
-# |  |$n_u$|$N-n_u$|$N$
-
-# new notation:
-# Male: n..1
+# Female: n..1
 # |  |KO  |WT  |    |
 # |--|:--:|:--:|:--:|
 # |1 |n111|n121|n1.1|
 # |0 |n211|n221|n2.1|
 # |  |n.11|n.21|n..1|
 
-# Female: n..2
+# Male: n..2
 # |  |KO  |WT  |    |
 # |--|:--:|:--:|:--:|
 # |1 |n112|n122|n1.2|
@@ -144,19 +85,8 @@ summary(tbl_2X2X2)
 
 mod.zelen.test<-function (z, example=F) 
 {
-  # Zelen's test.
-  # Based on chapter 10 of:
-  #
-  #   Nonparametric Statistical Methods, 3e
-  #   Hollander, Wolfe & Chicken 
-  #
-  # The data z is an array of k 2x2 matrices.
-  # Small data sets only!
-  # Uses package "partitions".
-  #
-  # Inefficiently programmed by Eric Chicken, November 2012.
+  # Based on chapter 10 of Nonparametric Statistical Methods, 3e Hollander, Wolfe & Chicken 
   
- 
   if(example) z <- array(c(2, 1, 2, 5, 1, 5, 4, 1), dim=c(2, 2, 2))
   
   s <- sum(z[1, 1, ])
@@ -265,33 +195,30 @@ lambda <- 0.05
 alpha  <- 0.05
 
 # # ---------------- get statistics: ---------------------------------------
-# 
-# ## work with phyper() notation:
-# mm <- vec_n_u_minus_n + vec_n
-# nn <- vec_N_minus_n1.. + vec_n1.. - mm
-# kk  <- vec_n1..
-# BB  <- pmin(mm,kk)
-# xx  <- pmin(vec_n,BB)
-# 
-# ## get pv (right tail)
-# p  <- dhyper(x = xx, m = mm, n = nn, k = kk) + phyper(q = xx, m = mm, n = nn, k = kk, lower.tail = FALSE)
-# 
-# ## get "alpha star" (the minimum attainable p-value due to discreteness):
-# alpha_star <- dhyper(x=BB, m = mm, n = nn, k = kk)
-# 
-# ## get the highest pdf value within the observed significance:
-# f_n <- dhyper(x = xx, m = mm, n = nn, k = kk)
-# 
-# ## get the number of occurences of this value (usually one):
-# kappa <- apply(cbind(BB,mm,nn,kk,f_n),1,
-#              function(x) sum(dhyper(x = 0:x[1], m = x[2], n = x[3], k = x[4])==x[5]))
-stat <- data.frame(p=NA,alpha_star=NA,f_n=NA,kappa=NA)
-for (i in 1:nrow(tbl_2X2X2))
-  stat[i,] <- mod.zelen.test(array(tbl_2X2X2[i,],dim = c(2,2,2))) 
 
-summary(stat)
+## deformed in KO (both F and M)
+xx <- n111 + n112                  # = n11.
+## deformed in KO and WT(both F and M)
+mm <- n111 + n112 + n121 + n122    # = n1..
+## not deformed in KO and WT (both F and  M)
+nn <- n211 + n212 + n221 + n222    # = n2..
+## in KO deformed and not deformed(both F and M)
+kk <- n111 + n211 + n112 + n212    # = n.1.
 
-mod.zelen.test(z = NULL, example = T)
+BB  <- pmin(mm,kk)
+
+# get pv (right tail)
+p  <- dhyper(x = xx, m = mm, n = nn, k = kk) + phyper(q = xx, m = mm, n = nn, k = kk, lower.tail = FALSE)
+
+## get "alpha star" (the minimum attainable p-value due to discreteness):
+alpha_star <- dhyper(x=BB, m = mm, n = nn, k = kk)
+
+## get the highest pdf value within the observed significance:
+f_n <- dhyper(x = xx, m = mm, n = nn, k = kk)
+
+## get the number of occurences of this value (usually one):
+kappa <- apply(cbind(BB,mm,nn,kk,f_n),1,
+               function(x) sum(dhyper(x = 0:x[1], m = x[2], n = x[3], k = x[4])==x[5]))
 
 
 # ---------- sub families sizes and indices: --------------------------- 
@@ -371,6 +298,8 @@ tb_all <- cbind(fam_size,pi0,
       apply(pa_4,2,function(x) sum(x<=alpha)))
 
 oc_ind <- rep(1:43,each=473)
+cbind(tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_0_051)
+oo <- order(XrayVariableList_c)
 
 tb_rej_in_each_oc_0_05 <- cbind(tapply(pa_1[,2],oc_ind,function(x) sum(x<=alpha)),
                          tapply(pa_2[,2],oc_ind,function(x) sum(x<=alpha)),
@@ -381,7 +310,10 @@ tb_rej_in_each_oc_Gilb <- cbind(tapply(pa_1[,3],oc_ind,function(x) sum(x<=alpha)
                          tapply(pa_3[,3],oc_ind,function(x) sum(x<=alpha)),
                          tapply(pa_4[,3],oc_ind,function(x) sum(x<=alpha)))
 
-save(tb_all,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
+unique(XrayVariableList_c)
+unique(tbl_222$Outcome)
+
+#save(tb_all,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
 
 ```
 
