@@ -1,10 +1,30 @@
 ---
-title: "Title"
+title: 'False discovery rate procedures for discrete tests: analysis of the data from
+  the Wellcome Trust Sanger Institute Mouse Genetics Project'
 author: "R.H; S.Y"
-date: "Tuesday, Feb 03, 2015"
+date: "Mars 04, 2015"
 output:
   pdf_document:
+    keep_tex: yes
 ---
+
+### Notations:
+
+* Female: n..1
+
+|  |KO  |WT  |    |
+|--|:--:|:--:|:--:|
+|1 |n111|n121|n1.1|
+|0 |n211|n221|n2.1|
+|  |n.11|n.21|n..1|
+
+* Male: n..2
+
+|  |KO  |WT  |    |
+|--|:--:|:--:|:--:|
+|1 |n112|n122|n1.2|
+|0 |n212|n222|n2.2|
+|  |n.12|n.22|n..2|
 
 ```{r knitr_options, include=FALSE}
 rm(list = ls())
@@ -12,11 +32,10 @@ library(knitr)
 library(partitions)
 library(dplyr)
 library(tidyr)
-
 opts_chunk$set(include = FALSE,echo = FALSE, eval = FALSE)
 ```
 
-```{r read_data}
+```{r zero_one_data_to_222_tables}
 ## 46 variables of interest:
 XrayVariableList <- c("Number.Of.Thoracic.Vertebrae","Number.Of.Lumbar.Vertebrae","Number.Of.Pelvic.Vertebrae","Number.Of.Caudal.Vertebrae", "Transitional.Vertebrae" , "Shape.Of.Vertebrae","Fusion.Of.Vertebrae", "Processes.On.Vertebrae","Maxilla","Zygomatic.Bone","Number.Of.Cervical.Vertebrae","Skull.Shape","Number.Of.Ribs.Right","Number.Of.Ribs.Left","Shape.Of.Ribcage","Shape.Of.Ribs","Rib.Fusions","Clavicle","Scapula"  ,"Humerus","Radius","Ulna","Pelvis","Femur","Tibia","Fibula","Joints","Shape.Of.Spine","Teeth","Mandible","Number.Of.Digits","Digit.Integrity","Syndactylism","Polysyndactylism","Brachydactylism","Kyphosis","Lordosis","Scoliosis","Spinous.Processes","Transverse.Processes","Fusion.Processes","Caudal.Processes","Cervical.Processes","Lumbar.Processes","Sacral.Processes","Thoracic.Processes")
 
@@ -26,68 +45,71 @@ XrayVariableList_c <- XrayVariableList[!c(XrayVariableList %in% c("Spinous.Proce
 ## read 0\1 data:
 ZO_data <- tbl_df(read.csv(file = "Oct29_2014_Xray_B6N_MGPSelect_Oor1_cleanV2.csv"))
 
-(ZO_data1 <- ZO_data %>%
-   
-   ## keep variables of interest only and 3 indices : 
-   select(one_of(c("Colony.Prefix","Genotype2","Gender",XrayVariableList_c))) %>%  
-   
-   ## reshape the data from wide (outcomes in 43 columns) to long (outcomes as variable)  
-   gather(Outcome,zo,-Colony.Prefix,-Genotype2,-Gender) %>% 
-   
-   ## create "group" variable containing the data from both "Genotype2" & "Colony.Prefix" :
-   mutate(Group = as.factor(ifelse(Genotype2 == "WT","WT",paste0(Colony.Prefix,"_",Genotype2)))) %>%
-   
-   ## drop "Genotype2" & "Colony.Prefix" : 
-   mutate(Genotype2 = NULL, Colony.Prefix = NULL) %>%
-   
-   ## group by ...
-   group_by(Outcome,Gender,Group) %>% 
-   
-   ## and summarise sums, counts and NAs:
-   summarise(s = sum(zo,na.rm = T),n = sum(!is.na(zo)) , NAs = sum(is.na(zo))))
+## keep variables of interest only and 3 indices : 
+ZO_data_clean <- select(ZO_data,one_of(c("Colony.Prefix","Genotype2","Gender",XrayVariableList_c)))
 
+## create "group" variable containing the data from both "Genotype2" & "Colony.Prefix" :
+ZO_data_renamed <- mutate(ZO_data_clean, Group = as.factor(ifelse(Genotype2 == "WT", "WT", paste0(Colony.Prefix, "_", Genotype2))))
 
+## drop "Genotype2" & "Colony.Prefix" : 
+ZO_data_clean2 <- mutate(ZO_data_renamed,Genotype2 = NULL, Colony.Prefix = NULL)
 
-KOs_only <- filter(ZO_data1, Group != "WT")
-WTs_only <- filter(ZO_data1, Group == "WT")
-FM_together <- full_join(KOs_only,WTs_only,by = c("Outcome","Gender"))
+## reshape the data from wide (outcomes in 43 columns) to long (outcomes as variable)  
+ZO_data_long <- gather(ZO_data_clean2, Outcome,zo, -Group, -Gender)
 
-F_only <- filter(FM_together, Gender == "Female")
-M_only <- filter(FM_together, Gender == "Male")
+## group by ...
+ZO_data_grouped <- group_by(ZO_data_long,Outcome,Gender,Group)
 
-tbl_222 <- full_join(F_only,M_only,by = c("Outcome","Group.x","Group.y")) %>% 
-  ungroup() %>% 
-  select(Outcome, Group = Group.x,
-         n111 = s.x.x, n.11 = n.x.x, n121 = s.y.x, n.21 = n.y.x,
-         n112 = s.x.y, n.12 = n.x.y, n122 = s.y.y, n.22 = n.y.y) %>% 
+## ... and summarise sums, counts and NAs:
+ZO_data_summariesed <- summarise(ZO_data_grouped, s = sum(zo,na.rm = T),n = sum(!is.na(zo)) , NAs = sum(is.na(zo)))
+
+## spread to wide format - males and females in different columns:
+F_only <- filter(ZO_data_summariesed, Gender == "Female")
+M_only <- filter(ZO_data_summariesed, Gender == "Male")
+FM_together <- full_join(F_only,M_only,by = c("Outcome","Group")) %>% ungroup()
+
+## convert generated NAs to zero (e.g when only male group is tested the female table values are  zeros):
+suppressWarnings(FM_together[is.na(FM_together)] <- 0)
+
+## spread to wide format - KO and WT in different columns:
+KOs_only <- filter(FM_together, Group != "WT")
+WTs_only <- filter(FM_together, Group == "WT")
+tbl_222 <- full_join(KOs_only,WTs_only,by = "Outcome")
+
+## rename variables to 2x2x2 table notation:
+tbl_222_clean <- select(tbl_222,Outcome, Group = Group.x,
+         n111 = s.x.x, n.11 = n.x.x, n121 = s.x.y, n.21 = n.x.y,
+         n112 = s.y.x, n.12 = n.y.x, n122 = s.y.y, n.22 = n.y.y) %>% 
   mutate(n211 = n.11 - n111, n221 = n.21 - n121,
-         n212 = n.12 - n112, n222 = n.22 - n122)
+         n212 = n.12 - n112, n222 = n.22 - n122) %>% 
+  mutate(n11. = n111 + n112,
+         n1.. = n111 + n112 + n121 + n122,
+         n2.. = n211 + n212 + n221 + n222,
+         n.1. = n111 + n211 + n112 + n212)
 
-tbl_222[is.na(tbl_222)] <- 0
-
-# Female: n..1
-# |  |KO  |WT  |    |
-# |--|:--:|:--:|:--:|
-# |1 |n111|n121|n1.1|
-# |0 |n211|n221|n2.1|
-# |  |n.11|n.21|n..1|
-
-# Male: n..2
-# |  |KO  |WT  |    |
-# |--|:--:|:--:|:--:|
-# |1 |n112|n122|n1.2|
-# |0 |n212|n222|n2.2|
-# |  |n.12|n.22|n..2|
+tbl_222_sorted <- arrange(tbl_222_clean,Outcome)
+rm(list = ls()[!(ls() %in% c("tbl_222_sorted","XrayVariableList_c"))])
 ```
 
-```{r functions_definitions}
+```{r functions_definitions__tests_and_multiplicity_corrections}
 # ---------------- functions definitions: -----------------------------------------
 
-mod.zelen.test<-function (z, example=F) 
+# print 2X2x2 table for given row of tbl_222:
+get_222_ftable <- function(row)
 {
+  z <- array(c(row$n111,row$n211,row$n121,row$n221,row$n112,row$n212,row$n122,row$n222), dim=c(2, 2, 2))
+  #addmargins(z) 
+  dimnames(z) <- list("Deformed"=c("Y","N"),"Group"=c("KO","WT"),"Gender"=c("Female","Male"))
+  return(ftable(z,row.vars = 1,col.vars = c(3,2)))
+}
+# zelen test for interaction:
+mod.zelen.test<-function (row) 
+{
+  z <- array(c(row$n111,row$n121,row$n211,row$n221,row$n112,row$n122,row$n212,row$n222), dim=c(2, 2, 2))
+  
   # Based on chapter 10 of Nonparametric Statistical Methods, 3e Hollander, Wolfe & Chicken 
   
-  if(example) z <- array(c(2, 1, 2, 5, 1, 5, 4, 1), dim=c(2, 2, 2))
+  if(F) z <- array(c(2, 1, 2, 5, 1, 5, 4, 1), dim=c(2, 2, 2))
   
   s <- sum(z[1, 1, ])
   k <- dim(z)[3]
@@ -129,11 +151,44 @@ mod.zelen.test<-function (z, example=F)
   f_n <- unique(y[y==y[tau.0]])
   kappa  <- sum(y==y[tau.0])
 
-  return(list(p=p,alpha_star=alpha_star,f_n=f_n,kappa=kappa))
+  return(data.frame(p=p,alpha_star=alpha_star,f_n=f_n,kappa=kappa))
 }
 
-## get size of the Tarone family, given alpha_stars: 
-# finds K(alpha)=inf{1:j|m(alpha,j)<=j} where m(alpha,j)=#{i|alpha_star[i]<=alpha/j}
+cond.test<-function (row) 
+{
+  ## deformed in KO (F and M)
+  xx1 <- row$n111
+  xx2 <- row$n112
+  ## deformed in KO and WT(F and M)
+  mm1 <- row$n111 + row$n121 # = n1.1
+  mm2 <- row$n112 + row$n122 # = n1.2
+  ## not deformed in KO and WT (F and  M)
+  nn1 <- row$n211 + row$n221 # = n2.1
+  nn2 <- row$n212 + row$n222 # = n2.2
+  ## in KO deformed and not deformed(F and M)
+  kk1 <- row$n.11
+  kk2 <- row$n.12
+  
+  BB1  <- pmin(mm1,kk1)
+  BB2  <- pmin(mm2,kk2)
+  AA1  <- pmax(0,kk1-nn1)
+  AA2  <- pmax(0,kk2-nn2)
+  
+  x <- dhyper(x = AA1:BB1, m = mm1, n = nn1, k = kk1)
+  y <- dhyper(x = AA2:BB2, m = mm2, n = nn2, k = kk2)
+  pdf <- convolve(x,rev(y),type = "open")
+  supp <- (AA1+AA2):(BB1+BB2)
+  alpha_star <- rev(pdf)[1]
+  index_pv <- which(rev(supp)==(xx1+xx2))
+  p <- sum(rev(pdf)[1:index_pv])
+  f_n <- rev(pdf)[index_pv]
+  kappa <- sum(pdf==f_n)   
+  
+  return(data.frame(p = p,alpha_star = alpha_star,f_n = f_n,kappa = kappa))
+}
+
+## Tarone family size, given alpha_stars: 
+## finds K(alpha)=inf{1:j|m(alpha,j)<=j} where m(alpha,j)=#{i|alpha_star[i]<=alpha/j}
 findK <- function(alpha_star,alpha,verbose=T)
 {
   la    <- length(alpha_star) 
@@ -146,7 +201,7 @@ findK <- function(alpha_star,alpha,verbose=T)
   return (K)
 }
 
-# estimate pi0 conditional expectation over U[0,1] (Dickhaus 2012):
+## estimate pi0 conditional expectation over U[0,1] (Dickhaus 2012):
 Pi_0_est_EU <- function(p,f_n,kappa,in_fam,lambda)
 {
   ## size of the sub-family:
@@ -160,7 +215,7 @@ Pi_0_est_EU <- function(p,f_n,kappa,in_fam,lambda)
   return(Pi_0_hat_EU)
 }
 
-# adaptive BH given pi0 estimate: 
+## adaptive BH given pi0 estimate: 
 p_adjust_adaptive <- function(p,pi_0_hat)
 {
   lp <- length(p)
@@ -170,320 +225,209 @@ p_adjust_adaptive <- function(p,pi_0_hat)
   pmin(1, cummin(lp*pi_0_hat/i * p[o]))[ro]
 }
 
-## print 2X2 table for OUTCOME j and KO i:
-ptable <- function(i,j)
+## multiplicity adjustments
+p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05)
 {
-  n_u1 <- n_u_minus_n[1,3+j]+n[i,3+j]
-  N1 <- N_minus_n1..[1,3+j] + n1..[i,3+j]
-  n1..1 <- n1..[i,3+j]
-  n1  <- n[i,3+j]
-  tb <- matrix(c(n1     ,n_u1-n1       ,  n_u1,
-               n1..1-n1,N1-n1..1-n_u1+n1,N1-n_u1,
-               n1..1   ,N1-n1..1        ,N1),
-               nrow=3,ncol=3,byrow=T)
-  dimnames(tb) <- list("Defected"=c("Y","N","TOTAL"),
-                       "Group"=c("KO","WT","TOTAL"))
-  tbna <- matrix(c(na_KO[i,3+j],na_WT[1,3+j],na_KO[i,3+j]+na_WT[i,3+j]),nrow=1,ncol=3,byrow=T)
-  dimnames(tbna) <- list("#NAs","Group"=c("KO","WT","TOTAL"))
-  return(tb)
-}
-
-```
-
-```{r all_outcomes_together_analysis}
-lambda <- 0.05
-alpha  <- 0.05
-
-# # ---------------- get statistics: ---------------------------------------
-
-## deformed in KO (both F and M)
-xx <- n111 + n112                  # = n11.
-## deformed in KO and WT(both F and M)
-mm <- n111 + n112 + n121 + n122    # = n1..
-## not deformed in KO and WT (both F and  M)
-nn <- n211 + n212 + n221 + n222    # = n2..
-## in KO deformed and not deformed(both F and M)
-kk <- n111 + n211 + n112 + n212    # = n.1.
-
-BB  <- pmin(mm,kk)
-
-# get pv (right tail)
-p  <- dhyper(x = xx, m = mm, n = nn, k = kk) + phyper(q = xx, m = mm, n = nn, k = kk, lower.tail = FALSE)
-
-## get "alpha star" (the minimum attainable p-value due to discreteness):
-alpha_star <- dhyper(x=BB, m = mm, n = nn, k = kk)
-
-## get the highest pdf value within the observed significance:
-f_n <- dhyper(x = xx, m = mm, n = nn, k = kk)
-
-## get the number of occurences of this value (usually one):
-kappa <- apply(cbind(BB,mm,nn,kk,f_n),1,
-               function(x) sum(dhyper(x = 0:x[1], m = x[2], n = x[3], k = x[4])==x[5]))
-
-
-# ---------- sub families sizes and indices: --------------------------- 
-
-F_alpha       <- alpha_star <= alpha
-size_F_alpha  <- sum(F_alpha)
-K             <- 12125 # findK(alpha_star)
-F_Gilb        <- alpha_star <= alpha/K
-
-fam_size             <- c(length(p),size_F_alpha,K)
-
-# ---------- Adjustment 1 original pv -------------------
-
-## BH adjustment:
-pa_BH <- p.adjust(p,"BH")
-
-## BH on alpha_star-smaller-than-alpha:
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
-
-## BH on Tarone family:
-pa_Gilb <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
-
-pa_1 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 2 : adaptive pv -------------------
-# get pi_0 estimates for each sub family:
-pi_0_all   <- Pi_0_est_EU(p,f_n,kappa,in_fam = rep(T,length(p)),lambda = lambda)
-pi_0_alpha <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_alpha,lambda = lambda)
-pi_0_Tar   <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_Gilb ,lambda = lambda)
-
-pi0 <- c(pi_0_all,pi_0_alpha,pi_0_Tar)
-
-
-# adjustment:
-pa_BH      <- p_adjust_adaptive(p = p, pi_0_hat = pi_0_all)
-
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p[F_alpha], pi_0_hat = pi_0_alpha)
-
-pa_Gilb    <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb]      <- p_adjust_adaptive(p = p[F_Gilb] , pi_0_hat = pi_0_Tar)
-
-pa_2  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 3 : mid pv --------------------------------
-p_mid <- p - f_n*0.5
-
-pa_BH <- p.adjust(p_mid,"BH")
-
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
-
-pa_Gilb <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
-
-pa_3  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 2 : adaptive pv -------------------
-pa_BH       <- p_adjust_adaptive(p = p_mid, pi_0_hat = pi_0_all)
-
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_mid[F_alpha], pi_0_hat = pi_0_alpha)
-
-pa_Gilb     <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_mid[F_Gilb] , pi_0_hat = pi_0_Tar)
-
-pa_4 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-
-#-------------------- summarize results: ---------------------------
-
-tb_all <- cbind(fam_size,pi0,
-      apply(pa_1,2,function(x) sum(x<=alpha)),
-      apply(pa_2,2,function(x) sum(x<=alpha)),
-      apply(pa_3,2,function(x) sum(x<=alpha)),
-      apply(pa_4,2,function(x) sum(x<=alpha)))
-
-oc_ind <- rep(1:43,each=473)
-cbind(tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_0_051)
-oo <- order(XrayVariableList_c)
-
-tb_rej_in_each_oc_0_05 <- cbind(tapply(pa_1[,2],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_2[,2],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_3[,2],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_4[,2],oc_ind,function(x) sum(x<=alpha)))
-tb_rej_in_each_oc_Gilb <- cbind(tapply(pa_1[,3],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_2[,3],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_3[,3],oc_ind,function(x) sum(x<=alpha)),
-                         tapply(pa_4[,3],oc_ind,function(x) sum(x<=alpha)))
-
-unique(XrayVariableList_c)
-unique(tbl_222$Outcome)
-
-#save(tb_all,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
-
-```
-
-```{r each_OC_separately_function}
-main_proc <- function(p,alpha_star,f_n,kappa,alpha,lambda)
-{
-# ---------- sub families sizes and indices: --------------------------- 
-#browser()
-F_alpha       <- alpha_star <= alpha
-size_F_alpha  <- sum(F_alpha)
-K             <- findK(alpha_star,alpha)
-if (K==0) F_Gilb <- rep(F,length(alpha_star)) else
-  F_Gilb <- alpha_star <= alpha/K
-fam_size      <- c(size_F_alpha,K)
-
-# ---------- Adjustment 1 original pv -------------------
-## BH on alpha_star-smaller-than-alpha:
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
-
-## BH on Tarone family:
-pa_Gilb <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
-
-pa_1 <- cbind(pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 2 : adaptive pv -------------------
-# get pi_0 estimates for each sub family:
-if (size_F_alpha<50) pi_0_alpha <- NA else
+  ## sub families sizes and indices:
+  F_alpha       <- alpha_star <= alpha
+  size_F_alpha  <- sum(F_alpha)
+  K             <- findK(alpha_star,alpha = 0.05)
+  F_Gilb        <- alpha_star <= alpha/K
+  
+  fam_size             <- c(length(p),size_F_alpha,K)
+  
+  # ---------- Adjustment 1 original pv -------------------
+  
+  pa_BH <- p.adjust(p,"BH")
+  
+  ## BH on alpha_star-smaller-than-alpha:
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
+  
+  ## BH on Tarone family:
+  pa_Gilb <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
+  
+  pa_1 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+  
+  # ---------- Adjustment 2 : adaptive pv -------------------
+  
+  # get pi_0 estimates for each sub family:
+  pi_0_all   <- Pi_0_est_EU(p,f_n,kappa,in_fam = rep(T,length(p)),lambda = lambda)
   pi_0_alpha <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_alpha,lambda = lambda)
-if (K<50) pi_0_Tar <- NA else
   pi_0_Tar   <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_Gilb ,lambda = lambda)
-
-pi0 <- c(pi_0_alpha,pi_0_Tar)
-
-# adjustment:
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p[F_alpha], pi_0_hat = pi_0_alpha)
-
-pa_Gilb    <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p[F_Gilb] , pi_0_hat = pi_0_Tar)
-
-pa_2 <- cbind(pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 3 : mid pv --------------------------------
-p_mid <- p - f_n*0.5
-
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
-
-pa_Gilb <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
-
-pa_3  <- cbind(pa_BH_alpha,pa_Gilb)
-
-# ---------- Adjustment 2 : adaptive pv -------------------
-pa_BH_alpha <- rep(1,length(F_alpha))
-pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_mid[F_alpha], pi_0_hat = pi_0_alpha)
-
-pa_Gilb     <- rep(1,length(F_Gilb))
-pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_mid[F_Gilb] , pi_0_hat = pi_0_Tar)
-
-pa_4 <- cbind(pa_BH_alpha,pa_Gilb)
-
-#-------------------- summarize results: ---------------------------
-
-tb <- cbind(fam_size,pi0,
-            apply(pa_1,2,function(x) sum(x<=alpha)),
-            apply(pa_2,2,function(x) sum(x<=alpha)),
-            apply(pa_3,2,function(x) sum(x<=alpha)),
-            apply(pa_4,2,function(x) sum(x<=alpha)))
-
-return(tb)
+  
+  pi0 <- c(pi_0_all,pi_0_alpha,pi_0_Tar)
+  
+  # adjustment:
+  pa_BH      <- p_adjust_adaptive(p = p, pi_0_hat = pi_0_all)
+  
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p[F_alpha], pi_0_hat = pi_0_alpha)
+  
+  pa_Gilb    <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb]      <- p_adjust_adaptive(p = p[F_Gilb] , pi_0_hat = pi_0_Tar)
+  
+  pa_2  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+  
+  # ---------- Adjustment 3 : mid pv --------------------------------
+  p_mid <- p - f_n*0.5
+  
+  pa_BH <- p.adjust(p_mid,"BH")
+  
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
+  
+  pa_Gilb <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
+  
+  pa_3  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+  
+  # ---------- Adjustment 4 : adaptive mid-pv -------------------
+  pa_BH       <- p_adjust_adaptive(p = p_mid, pi_0_hat = pi_0_all)
+  
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_mid[F_alpha], pi_0_hat = pi_0_alpha)
+  
+  pa_Gilb     <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_mid[F_Gilb] , pi_0_hat = pi_0_Tar)
+  
+  pa_4 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+  
+  out <- data.frame(pa_original_non_adp = pa_1,
+             pa_original_adp = pa_2,
+             pa_mid_non_adp = pa_3,
+             pa_mid_adp = pa_4)
+  
+  return(cbind(out,fam_size = t(fam_size),pi0 = t(pi0)))
 }
 
 ```
 
-```{r each_OC_separately_exe}
-alpha <- 0.05
-tb_each_oc_sep_0_05 <- NULL
-for (i in 1:43)
-  {
-  OC_inds  <- 1:473 + 473*(i-1)
-  tb <- main_proc(p = p[OC_inds],
-                  alpha_star = alpha_star[OC_inds],
-                  f_n = f_n[OC_inds],
-                  kappa = kappa[OC_inds],
-                  alpha = alpha,lambda = lambda)
-  tb_each_oc_sep_0_05 <- rbind(tb_each_oc_sep_0_05,tb)
-  }
+```{r run}
 
-tb_each_oc_sep_0_05_Total_of_BH_0.05 <- c(NA,NA,colSums(tb_each_oc_sep_0_05[2*(1:43)-1,3:6],na.rm = T))
-tb_each_oc_sep_0_05_Total_of_Gilbert <- c(NA,NA,colSums(tb_each_oc_sep_0_05[2*(1:43)  ,3:6],na.rm = T))
-tb_each_oc_sep_0_05_with_totals <- rbind(tb_each_oc_sep_0_05,
-                                  tb_each_oc_sep_0_05_Total_of_BH_0.05,
-                                  tb_each_oc_sep_0_05_Total_of_Gilbert)
+## ----  [old] get pvalue for test on marginal 2X2 tables (no female\male effect) ------
+# attach(tbl_222_sorted)
+# ## deformed in KO (both F and M)
+# xx <- n11.
+# ## deformed in KO and WT(both F and M)
+# mm <- n1..
+# ## not deformed in KO and WT (both F and  M)
+# nn <- n2..
+# ## in KO deformed and not deformed(both F and M)
+# kk <- n.1.
+# 
+# BB  <- pmin(mm,kk)
+# 
+# # get pv (right tail)
+# p  <- dhyper(x = xx, m = mm, n = nn, k = kk) + phyper(q = xx, m = mm, n = nn, k = kk, lower.tail = FALSE)
+# 
+# ## get "alpha star" (the minimum attainable p-value due to discreteness):
+# alpha_star <- dhyper(x=BB, m = mm, n = nn, k = kk)
+# 
+# ## get the highest pdf value within the observed significance:
+# f_n <- dhyper(x = xx, m = mm, n = nn, k = kk)
+# 
+# ## get the number of occurences of this value (usually one):
+# kappa <- apply(cbind(BB,mm,nn,kk,f_n),1,
+#                function(x) sum(dhyper(x = 0:x[1], m = x[2], n = x[3], k = x[4])==x[5]))
 
-alpha <- 0.04
-tb_each_oc_sep_0_04 <- NULL
-for (i in 1:43)
-  {
-  OC_inds  <- 1:473 + 473*(i-1)
-  tb <- main_proc(p = p[OC_inds],
-                  alpha_star = alpha_star[OC_inds],
-                  f_n = f_n[OC_inds],
-                  kappa = kappa[OC_inds],
-                  alpha = alpha,lambda = lambda)
-  tb_each_oc_sep_0_04 <- rbind(tb_each_oc_sep_0_04,tb)
-  }
+## ----  [new] get pvalue for mantel-haenszel test and interaction test: ----
 
-tb_each_oc_sep_0_04_Total_of_BH_0.04 <- c(NA,NA,colSums(tb_each_oc_sep_0_04[2*(1:43)-1,3:6],na.rm = T))
-tb_each_oc_sep_0_04_Total_of_Gilbert <- c(NA,NA,colSums(tb_each_oc_sep_0_04[2*(1:43)  ,3:6],na.rm = T))
-tb_each_oc_sep_0_04_with_totals <- rbind(tb_each_oc_sep_0_04,
-                                  tb_each_oc_sep_0_04_Total_of_BH_0.04,
-                                  tb_each_oc_sep_0_04_Total_of_Gilbert)
+tbl_p     <- tbl_222_sorted %>% rowwise() %>%  do(cond.test(.)) 
+tbl_p_int <- tbl_222_sorted %>% rowwise() %>%  do(mod.zelen.test(.)) 
 
-save(tb_each_oc_sep_0_05_with_totals,tb_each_oc_sep_0_04_with_totals,file="tables_each.RData")
+## ----  [old] multiplicity adjustment 1: "all-outcomes-together" family: -----
+# alpha <- 0.05
+# tbl_pa <- p_adjust(p = tbl_p$p,
+#                    alpha_star = tbl_p$alpha_star,
+#                    f_n = tbl_p$f_n,
+#                    kappa =tbl_p$kappa)
+# 
+# tb_all <- tbl_pa %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
+#   summarise_each(funs(sum(.<=alpha)))
+# 
+# tb_all_named <- as.data.frame(matrix(tb_all,nrow = 3, dimnames = list(c("pa_BH","pa_BH_alpha","pa_Gilb"),
+#   c("pa_original_non_adp","pa_original_adp","pa_mid_non_adp","pa_mid_adp"))))
+# 
+# fam_size <- t(select(tbl_pa,starts_with("fam"))[1,])
+# pi0      <- t(select(tbl_pa,starts_with("pi0"))[1,])
+# 
+# tb_all_2 <- cbind(tb_all_named,fam_size,pi0)
+# 
+# tb_rej_in_each_oc_0_05 <-  cbind(tbl_222_sorted,tbl_p) %>%
+#   select(Outcome ,ends_with("pa_BH_alpha")) %>%
+#   group_by(Outcome) %>%
+#   summarise_each(funs(sum(.<=alpha)))
+# 
+# tb_rej_in_each_oc_Gilb <-  cbind(tbl_222_sorted,tbl_p) %>%
+#   select(Outcome ,ends_with("pa_Gilb")) %>%
+#   group_by(Outcome) %>%
+#   summarise_each(funs(sum(.<=alpha)))
+# 
+# save(tb_all_2,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
 
+## ----  [new] multiplicity adjustment 2: each-outcome-seperatly ----
+
+## adjustments for the p values of the MH tests:
+tbl_pa_each     <- cbind(select(tbl_222_sorted,Outcome),tbl_p) %>% group_by(Outcome) %>% 
+  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
+
+## adjustments for the p values of the Zelen(interaction) tests - only on the rejections of the above in mid pvalue non adaptive where alpha star smaller than alpha=0.05:
+## rejection level is taken as alpha*R/{# of families} =~ 0.04
+tbl_pa_int_each <- cbind(select(tbl_pa_each,Outcome,pa_mid_non_adp.pa_BH_alpha),tbl_p_int) %>%
+  group_by(Outcome) %>%
+  filter(pa_mid_non_adp.pa_BH_alpha <= 0.04) %>% 
+  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
+
+## results tables - number of rejected, family sizes and pi0 estimates:
+tb_results_each <- tbl_pa_each %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
+  summarise_each(funs(sum(.<=0.04)))
+tb_results_each_fam <- tbl_pa_each %>% select(starts_with("fam")) %>% 
+  summarise_each(funs(head(.,n = 1)))
+tb_results_each_pi0 <- tbl_pa_each %>% select(starts_with("pi0")) %>% 
+  summarise_each(funs(head(.,n = 1)))
+
+## results tables - number of rejected, family sizes and pi0 estimates:
+tb_results_each_int <- tbl_pa_int_each %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
+  summarise_each(funs(sum(.<=0.05))) 
+tb_results_each_int_fam <- tbl_pa_int_each %>% select(starts_with("fam")) %>% 
+  summarise_each(funs(head(.,n = 1)))
+tb_results_each_int_pi0 <- tbl_pa_int_each %>% select(starts_with("pi0")) %>% 
+  summarise_each(funs(head(.,n = 1)))
+
+## consice results (only families sizes and # of rejections):
+xjoin <- select(tb_results_each,Outcome,main_effect_rej = pa_mid_non_adp.pa_BH_alpha) %>% 
+  cbind(select(tb_results_each_fam,main_effect_size = fam_size.2),.)
+yjoin <- select(tb_results_each_int,Outcome,interaction_rej = pa_mid_non_adp.pa_BH_alpha) %>% 
+  cbind(select(tb_results_each_int_fam,interaction_size = fam_size.2),.)
+
+fam_sizes_n_rej <- inner_join(xjoin,yjoin)[,c(2,1,3,4,5)]
+
+## get significant tables:
+tbl_sig <- cbind(transmute(tbl_p, p_main = p, p_mid_main = p - f_n*0.5),
+                 transmute(tbl_p_int, p_int = p, p_mid_int = p - f_n*0.5),
+                 tbl_222_sorted,
+                 select(ungroup(tbl_pa_each),pa_MH = pa_mid_non_adp.pa_BH_alpha)) %>%
+  filter(pa_MH <= 0.04) %>% 
+  cbind(.,select(ungroup(tbl_pa_int_each),pa_int = pa_mid_non_adp.pa_BH_alpha)) %>% 
+  filter(pa_int <= 0.05)
+
+tbl_sig_consice <- tbl_sig[,c("Outcome","Group","p_main","p_mid_main","p_int","p_mid_int")]
+tbl1 <- get_222_ftable(tbl_sig[1,])
+tbl2 <- get_222_ftable(tbl_sig[2,])
+tbl3 <- get_222_ftable(tbl_sig[3,])
+save(fam_sizes_n_rej,tbl_sig,tbl_sig_consice,tbl1,tbl2,tbl3,file = "objects_to_report.RData")
 ```
+
+### Results:
 
 ```{r print_tables, include = T, eval = T, results='asis'}
-rm(list = ls())
-load("tables_all.RData")
-load("tables_each.RData")
-## 46 variables of interest:
-XrayVariableList <- c("Number.Of.Thoracic.Vertebrae","Number.Of.Lumbar.Vertebrae","Number.Of.Pelvic.Vertebrae","Number.Of.Caudal.Vertebrae", "Transitional.Vertebrae" , "Shape.Of.Vertebrae","Fusion.Of.Vertebrae", "Processes.On.Vertebrae","Maxilla","Zygomatic.Bone","Number.Of.Cervical.Vertebrae","Skull.Shape","Number.Of.Ribs.Right","Number.Of.Ribs.Left","Shape.Of.Ribcage","Shape.Of.Ribs","Rib.Fusions","Clavicle","Scapula"  ,"Humerus","Radius","Ulna","Pelvis","Femur","Tibia","Fibula","Joints","Shape.Of.Spine","Teeth","Mandible","Number.Of.Digits","Digit.Integrity","Syndactylism","Polysyndactylism","Brachydactylism","Kyphosis","Lordosis","Scoliosis","Spinous.Processes","Transverse.Processes","Fusion.Processes","Caudal.Processes","Cervical.Processes","Lumbar.Processes","Sacral.Processes","Thoracic.Processes")    
-
-## remove 3 variables with no values:
-XrayVariableList_c <- XrayVariableList[!(XrayVariableList %in% c("Spinous.Processes","Transverse.Processes","Processes.On.Vertebrae"))]
-
-#-------------  10 first 2x2 tables: -----------------
-# pa_BH              <- p.adjust(p,"BH")
-# ind <- which(pa_BH<=0.05)
-# o <- order(pa_BH[ind])
-# j <- 1
-# for (i in ind[o][1:10])
-#   {
-#   print(kable(ptable(i %% 473,1+ (i %/% 473))))
-#   }
-# 
-#-------------  Rejections in each procedure : -----------------
-
-# table 1:
-colnames(tb_all) <- c("size","pi_0","Original_pv",".","Mid_pv","..")
-rownames(tb_all) <- c("BH","BH 0.05","Gilbert")
-
-# table 2:
-colnames(tb_rej_in_each_oc_0_05) <- c("Original_pv",".","Mid_pv","..")
-rownames(tb_rej_in_each_oc_0_05) <- XrayVariableList_c
-
-# table 3:
-colnames(tb_rej_in_each_oc_Gilb) <- c("Original_pv",".","Mid_pv","..")
-rownames(tb_rej_in_each_oc_Gilb) <- XrayVariableList_c
-
-# table 4:
-oc_names <- c(as.vector(rbind(XrayVariableList_c,NA)),"Total",NA)
-colnames(tb_each_oc_sep_0_05_with_totals) <- c("size","pi_0","Original_pv",".","Mid_pv","..")
-rownames(tb_each_oc_sep_0_05_with_totals) <- NULL 
-tb_each_oc_sep_0_05_1 <- data.frame(oc_names,Family=rep(c("BH_0.05","Gilbert"),44),tb_each_oc_sep_0_05_with_totals)
-
-# table 5:
-colnames(tb_each_oc_sep_0_04_with_totals) <- c("size","pi_0","Original_pv",".","Mid_pv","..")
-rownames(tb_each_oc_sep_0_04_with_totals) <- NULL 
-tb_each_oc_sep_0_04_1 <- data.frame(oc_names,Family=rep(c("BH_0.05","Gilbert"),44),tb_each_oc_sep_0_04_with_totals)
-
-kable(data.frame(tb_all),digits=4,caption="table 1:...",format="latex")
-kable(data.frame(tb_rej_in_each_oc_0_05),caption="table 2:...",format="latex")
-kable(data.frame(tb_rej_in_each_oc_Gilb),caption="table 3:...",format="latex")
-kable(tb_each_oc_sep_0_05_1, digits=4,caption="table 4:...",format="latex")
-kable(tb_each_oc_sep_0_04_1, digits=4,caption="table 5:...",format="latex")
-
+load("objects_to_report.RData")
+kable(fam_sizes_n_rej)
+kable(tbl_sig_consice)
+kable(as.matrix(tbl1))
+kable(as.matrix(tbl2))
+kable(as.matrix(tbl3))
 ```
 
