@@ -226,12 +226,16 @@ p_adjust_adaptive <- function(p,pi_0_hat)
 }
 
 ## multiplicity adjustments
-p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05)
+p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,seed2 = 1, Kvec = NULL, rr=1000)
 {
   ## sub families sizes and indices:
   F_alpha       <- alpha_star <= alpha
   size_F_alpha  <- sum(F_alpha)
-  K             <- findK(alpha_star,alpha = 0.05)
+  if (is.null(Kvec))
+    K <- findK(alpha_star,alpha = 0.05)
+  else
+    K <- unique(Kvec)
+  if (length(K)>1) stop("K>1")
   F_Gilb        <- alpha_star <= alpha/K
   
   fam_size             <- c(length(p),size_F_alpha,K)
@@ -294,11 +298,49 @@ p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05)
   
   pa_4 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
   
+  # ---------- Adjustment 5/6 : avg realized randomized pvalue (adp/non-adp)----------
+  pa_5_cum <- pa_6_cum <- 0
+  for (i in 1:rr)
+  {
+    set.seed(rr*i*seed2)
+    u <- runif(n = length(p))
+    p_rand <- p - f_n*u
+    
+    pa_BH <- p.adjust(p_rand,"BH")
+  
+    pa_BH_alpha <- rep(1,length(F_alpha))
+    pa_BH_alpha[F_alpha] <- p.adjust(p_rand[F_alpha],"BH")
+  
+    pa_Gilb <- rep(1,length(F_Gilb))
+    pa_Gilb[F_Gilb] <- p.adjust(p_rand[F_Gilb],"BH")
+  
+    pa_5  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+    
+    pa_5_cum <- pa_5_cum + pa_5
+    
+    pa_BH       <- p_adjust_adaptive(p = p_rand, pi_0_hat = pi_0_all)
+  
+    pa_BH_alpha <- rep(1,length(F_alpha))
+    pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_rand[F_alpha], pi_0_hat = pi_0_alpha)
+  
+    pa_Gilb     <- rep(1,length(F_Gilb))
+    pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_rand[F_Gilb] , pi_0_hat = pi_0_Tar)
+  
+    pa_6 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
+  
+    pa_6_cum <- pa_6_cum + pa_6
+  }
+  pa_5_avg <- pa_5_cum/rr
+  pa_6_avg <- pa_6_cum/rr
+  
+  
   out <- data.frame(pa_original_non_adp = pa_1,
              pa_original_adp = pa_2,
              pa_mid_non_adp = pa_3,
-             pa_mid_adp = pa_4)
-  
+             pa_mid_adp = pa_4,
+             pa_arr_non_adp = pa_5_avg,
+             pa_arr_adp = pa_6_avg)
+
   return(cbind(out,fam_size = t(fam_size),pi0 = t(pi0)))
 }
 
@@ -338,34 +380,32 @@ tbl_p     <- tbl_222_sorted %>% rowwise() %>%  do(cond.test(.))
 tbl_p_int <- tbl_222_sorted %>% rowwise() %>%  do(mod.zelen.test(.)) 
 
 ## ----  [old] multiplicity adjustment 1: "all-outcomes-together" family: -----
-# alpha <- 0.05
-# tbl_pa <- p_adjust(p = tbl_p$p,
-#                    alpha_star = tbl_p$alpha_star,
-#                    f_n = tbl_p$f_n,
-#                    kappa =tbl_p$kappa)
-# 
-# tb_all <- tbl_pa %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
-#   summarise_each(funs(sum(.<=alpha)))
-# 
-# tb_all_named <- as.data.frame(matrix(tb_all,nrow = 3, dimnames = list(c("pa_BH","pa_BH_alpha","pa_Gilb"),
-#   c("pa_original_non_adp","pa_original_adp","pa_mid_non_adp","pa_mid_adp"))))
-# 
-# fam_size <- t(select(tbl_pa,starts_with("fam"))[1,])
-# pi0      <- t(select(tbl_pa,starts_with("pi0"))[1,])
-# 
-# tb_all_2 <- cbind(tb_all_named,fam_size,pi0)
-# 
-# tb_rej_in_each_oc_0_05 <-  cbind(tbl_222_sorted,tbl_p) %>%
-#   select(Outcome ,ends_with("pa_BH_alpha")) %>%
-#   group_by(Outcome) %>%
-#   summarise_each(funs(sum(.<=alpha)))
-# 
-# tb_rej_in_each_oc_Gilb <-  cbind(tbl_222_sorted,tbl_p) %>%
-#   select(Outcome ,ends_with("pa_Gilb")) %>%
-#   group_by(Outcome) %>%
-#   summarise_each(funs(sum(.<=alpha)))
-# 
-# save(tb_all_2,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
+alpha <- 0.05
+## adjustments for the p values of the MH tests:
+tbl_pa_all     <- ungroup(tbl_p) %>% do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
+
+tb_all <- tbl_pa_all %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
+  summarise_each(funs(sum(.<=alpha)))
+
+tb_all_named <- as.data.frame(matrix(tb_all,nrow = 3, dimnames = list(c("pa_BH","pa_BH_alpha","pa_Gilb"),
+  c("pa_original_non_adp","pa_original_adp","pa_mid_non_adp","pa_mid_adp","pa_rand_non_adp","pa_rand_adp"))))
+
+fam_size <- t(select(tbl_pa_all,starts_with("fam"))[1,])
+pi0      <- t(select(tbl_pa_all,starts_with("pi0"))[1,])
+
+(tb_all_2 <- cbind(tb_all_named,fam_size,pi0))
+
+tb_rej_in_each_oc_0_05 <-  cbind(tbl_222_sorted,tbl_p) %>%
+  select(Outcome ,ends_with("pa_BH_alpha")) %>%
+  group_by(Outcome) %>%
+  summarise_each(funs(sum(.<=alpha)))
+
+tb_rej_in_each_oc_Gilb <-  cbind(tbl_222_sorted,tbl_p) %>%
+  select(Outcome ,ends_with("pa_Gilb")) %>%
+  group_by(Outcome) %>%
+  summarise_each(funs(sum(.<=alpha)))
+
+save(tb_all_2,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
 
 ## ----  [new] multiplicity adjustment 2: each-outcome-seperatly ----
 
@@ -430,4 +470,28 @@ kable(as.matrix(tbl1))
 kable(as.matrix(tbl2))
 kable(as.matrix(tbl3))
 ```
+
+```{r simulation}
+attach(tbl_222_sorted)
+
+tbl_K <- select(tbl_pa_each,fam_size.3)
+B=1000
+for (j in 1:B)
+{
+  tbl_222_sim <- 
+    tbl_222_sorted %>% mutate(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
+                              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
+  tbl_p     <- tbl_222_sim %>% rowwise() %>%  do(cond.test(.)) 
+  #tbl_p_int <- tbl_222_sim %>% rowwise() %>%  do(mod.zelen.test(.)) 
+  
+  tbl_pa_each_sim     <- cbind(tbl_p,tbl_K) %>% group_by(Outcome) %>% 
+  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = .$fam_size.3,seed2 = j,rr = 500))
+  
+  
+}
+
+
+```
+
+
 
