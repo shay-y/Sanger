@@ -7,7 +7,6 @@ output:
   pdf_document:
     keep_tex: yes
 ---
-
 ### Notations:
 
 * Female: n..1
@@ -25,7 +24,7 @@ output:
 |1 |n112|n122|n1.2|
 |0 |n212|n222|n2.2|
 |  |n.12|n.22|n..2|
-
+### Code:
 ```{r knitr_options, include=FALSE}
 rm(list = ls())
 library(knitr)
@@ -46,7 +45,7 @@ XrayVariableList_c <- XrayVariableList[!c(XrayVariableList %in% c("Spinous.Proce
 ZO_data <- tbl_df(read.csv(file = "Oct29_2014_Xray_B6N_MGPSelect_Oor1_cleanV2.csv"))
 
 ## keep variables of interest only and 3 indices : 
-ZO_data_clean <- select(ZO_data,one_of(c("Colony.Prefix","Genotype2","Gender",XrayVariableList_c)))
+ZO_data_clean <- dplyr::select(ZO_data,one_of(c("Colony.Prefix","Genotype2","Gender",XrayVariableList_c)))
 
 ## create "group" variable containing the data from both "Genotype2" & "Colony.Prefix" :
 ZO_data_renamed <- mutate(ZO_data_clean, Group = as.factor(ifelse(Genotype2 == "WT", "WT", paste0(Colony.Prefix, "_", Genotype2))))
@@ -154,37 +153,50 @@ mod.zelen.test<-function (row)
   return(data.frame(p=p,alpha_star=alpha_star,f_n=f_n,kappa=kappa))
 }
 
-cond.test<-function (row) 
+df <- tbl_222_sorted 
+
+get_cond_test_pdf_supp <- function (df) 
 {
   ## deformed in KO (F and M)
-  xx1 <- row$n111
-  xx2 <- row$n112
+  xx1 <- df$n111
+  xx2 <- df$n112
   ## deformed in KO and WT(F and M)
-  mm1 <- row$n111 + row$n121 # = n1.1
-  mm2 <- row$n112 + row$n122 # = n1.2
+  mm1 <- df$n111 + df$n121 # = n1.1
+  mm2 <- df$n112 + df$n122 # = n1.2
   ## not deformed in KO and WT (F and  M)
-  nn1 <- row$n211 + row$n221 # = n2.1
-  nn2 <- row$n212 + row$n222 # = n2.2
+  nn1 <- df$n211 + df$n221 # = n2.1
+  nn2 <- df$n212 + df$n222 # = n2.2
   ## in KO deformed and not deformed(F and M)
-  kk1 <- row$n.11
-  kk2 <- row$n.12
+  kk1 <- df$n.11
+  kk2 <- df$n.12
   
   BB1  <- pmin(mm1,kk1)
   BB2  <- pmin(mm2,kk2)
   AA1  <- pmax(0,kk1-nn1)
   AA2  <- pmax(0,kk2-nn2)
+
+  pdf_list <- supp_list <- list()
+  for (i in 1:nrow(df))
+  {
+    x <- dhyper(x = AA1[i]:BB1[i], m = mm1[i], n = nn1[i], k = kk1[i])
+    y <- dhyper(x = AA2[i]:BB2[i], m = mm2[i], n = nn2[i], k = kk2[i])
+    pdf_list[[i]] <- convolve(x, rev(y), type = "open")
+    supp_list[[i]] <- (AA1[i]+AA2[i]):(BB1[i]+BB2[i])
+  }
   
-  x <- dhyper(x = AA1:BB1, m = mm1, n = nn1, k = kk1)
-  y <- dhyper(x = AA2:BB2, m = mm2, n = nn2, k = kk2)
-  pdf <- convolve(x,rev(y),type = "open")
-  supp <- (AA1+AA2):(BB1+BB2)
-  alpha_star <- rev(pdf)[1]
-  index_pv <- which(rev(supp)==(xx1+xx2))
-  p <- sum(rev(pdf)[1:index_pv])
-  f_n <- rev(pdf)[index_pv]
-  kappa <- sum(pdf==f_n)   
+  alpha_star <- sapply(pdf_list,function(x) rev(x)[1], simplify = TRUE)
   
-  return(data.frame(p = p,alpha_star = alpha_star,f_n = f_n,kappa = kappa))
+  return(data.frame(pdf_list=I(pdf_list),supp_list=I(supp_list),alpha_star=alpha_star))
+}
+
+get_cond_test_pvs <- function(pdf_list,supp_list,xx1,xx2)
+{
+  xx <- xx1+xx2
+  ind_pv <- mapply(function(supp,xx) which(rev(supp)==(xx))[1],supp_list,xx)
+  p   <-   mapply(function(pdf,ind_pv) sum(rev(pdf)[1:ind_pv]), pdf_list, ind_pv)
+  f_n <-   mapply(function(pdf,ind_pv) rev(pdf)[ind_pv], pdf_list, ind_pv)
+  kappa <- mapply(function(pdf,f_n) sum(pdf==f_n), pdf_list, f_n)   
+  return(data.frame(p = p,f_n = f_n,kappa = kappa))
 }
 
 ## Tarone family size, given alpha_stars: 
@@ -226,7 +238,7 @@ p_adjust_adaptive <- function(p,pi_0_hat)
 }
 
 ## multiplicity adjustments
-p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,seed2 = 1, Kvec = NULL, rr=1000)
+p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,index_for_seed = 1, Kvec = NULL, rr=500)
 {
   ## sub families sizes and indices:
   F_alpha       <- alpha_star <= alpha
@@ -302,7 +314,8 @@ p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,seed2 = 1
   pa_5_cum <- pa_6_cum <- 0
   for (i in 1:rr)
   {
-    set.seed(rr*i*seed2)
+    # (1:500) (500+1:500) (2*500+1:500)
+    set.seed(i+rr*index_for_seed)
     u <- runif(n = length(p))
     p_rand <- p - f_n*u
     
@@ -376,7 +389,11 @@ p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,seed2 = 1
 
 ## ----  [new] get pvalue for mantel-haenszel test and interaction test: ----
 
-tbl_p     <- tbl_222_sorted %>% rowwise() %>%  do(cond.test(.)) 
+tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
+
+tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>% 
+  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)}
+
 tbl_p_int <- tbl_222_sorted %>% rowwise() %>%  do(mod.zelen.test(.)) 
 
 ## ----  [old] multiplicity adjustment 1: "all-outcomes-together" family: -----
@@ -472,26 +489,94 @@ kable(as.matrix(tbl3))
 ```
 
 ```{r simulation}
-attach(tbl_222_sorted)
+# get tbl_222_sorted
 
-tbl_K <- select(tbl_pa_each,fam_size.3)
-B=1000
-for (j in 1:B)
-{
-  tbl_222_sim <- 
-    tbl_222_sorted %>% mutate(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-                              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-  tbl_p     <- tbl_222_sim %>% rowwise() %>%  do(cond.test(.)) 
-  #tbl_p_int <- tbl_222_sim %>% rowwise() %>%  do(mod.zelen.test(.)) 
-  
-  tbl_pa_each_sim     <- cbind(tbl_p,tbl_K) %>% group_by(Outcome) %>% 
-  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = .$fam_size.3,seed2 = j,rr = 500))
-  
-  
+B <- 5000
+sim_result_list <- tbl_p_list <- list()
+index_seed <- as.numeric(tbl_222_sorted$Outcome)
+tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
+tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>% 
+  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
+  cbind(.,select(tbl_222_sorted,Outcome))
+tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
+  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
+tbl_K <- select(tbl_pa_each_first,fam_size.3)
+
+for (b in 1:B)
+{ b=1
+  cat(b,"\n")
+  tbl_222_sim <- tbl_222_sorted %>%
+    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
+           n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
+  tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sim,n111,n112)) %>% 
+  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
+  cbind(.,select(tbl_222_sorted,Outcome))
+  tbl_pa_each_sim <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star),select(tbl_K,fam_size.3)) %>%
+    group_by(Outcome) %>% do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,
+                                      Kvec = .$fam_size.3,index_for_seed = index_seed+b*max(index_seed)))
+  sim_result_list[[b]] <- tbl_pa_each_sim
 }
 
+save(sim_result_list,file="sim_result_list.RData")
 
+get_n_Rej <- function(x) as.data.frame(t(colSums(x<=0.05)))
+# summarize results:
+nRej  <- lapply(sim_result_list, FUN = function(x) {x %>%
+    group_by(Outcome) %>% do(get_n_Rej(.[-c(1,20:25)]))})
+fwe  <- lapply(nRej,function(x) x>1)
+fwer <- Reduce('+', fwe)/length(nRej)
+cbind(unique(tbl_K),fwer)[c(9,19,24,41),-c(3:5,7,8,10,11,13,14,16,17,19,20)]
+
+save.image()
 ```
 
 
+
+```{r simulation_effect}
+OR = 5
+B <- 100
+# tbl_K <- NULL
+sim_result_list_eff <- list()
+index_seed <- as.numeric(tbl_222_sorted$Outcome)
+
+for (b in 1:B)
+{
+  cat(b,"\n")
+  for (ii in which_true_alt)
+    n111[ii] <- rnoncenhypergeom(50, n = n211 + n221,m = n121 + n111,k = n.11)
+  (1,n1 = n_u,n2 = N-n_u,m1 = n_t[ii],psi = OR)
+  tbl_222_sim <- 
+    tbl_222_sorted %>% mutate(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
+                              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
+  tbl_p     <- tbl_222_sim %>% rowwise() %>%  do(cond.test(.)) %>%
+    cbind(select(tbl_222_sim,Outcome),.) %>% tbl_df()
+  #tbl_p_int <- tbl_222_sim %>% rowwise() %>%  do(mod.zelen.test(.)) 
+  
+  if (is.null(tbl_K))
+  {
+    tbl_pa_each_sim     <- tbl_p %>% group_by(Outcome) %>% 
+      do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
+    tbl_K <- select(tbl_pa_each_sim,fam_size.3)
+  }
+  else
+    tbl_pa_each_sim     <- cbind(tbl_p, select(tbl_K,fam_size.3)) %>% group_by(Outcome) %>%
+      do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = .$fam_size.3,
+                  index_for_seed = index_seed+b*max(index_seed)))
+  sim_result_list[[b]] <- tbl_pa_each_sim
+}
+
+save(sim_result_list,file="sim_result_list.RData")
+
+# summarize results:
+Rej <- lapply(sim_result_list,FUN = function(x) x[-1]<=0.05)
+
+nRej <- lapply(Rej,FUN = function(x) colSums(x))
+
+xx <- Reduce('+', nRej)/length(out)
+
+sim_result_list[[1]]<=0.05
+
+
+
+```
 
