@@ -7,6 +7,7 @@ output:
   pdf_document:
     keep_tex: yes
 ---
+
 ### Notations:
 
 * Female: n..1
@@ -24,7 +25,9 @@ output:
 |1 |n112|n122|n1.2|
 |0 |n212|n222|n2.2|
 |  |n.12|n.22|n..2|
+
 ### Code:
+
 ```{r knitr_options, include=FALSE}
 rm(list = ls())
 library(knitr)
@@ -152,8 +155,6 @@ mod.zelen.test<-function (row)
 
   return(data.frame(p=p,alpha_star=alpha_star,f_n=f_n,kappa=kappa))
 }
-
-df <- tbl_222_sorted 
 
 get_cond_test_pdf_supp <- function (df) 
 {
@@ -357,6 +358,56 @@ p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,index_for
   return(cbind(out,fam_size = t(fam_size),pi0 = t(pi0)))
 }
 
+## multiplicity adjustments
+p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec = NULL, rr=500)
+{
+  ## sub families sizes and indices:
+  F_alpha       <- alpha_star <= alpha
+  size_F_alpha  <- sum(F_alpha)
+  if (is.null(Kvec))
+    K <- findK(alpha_star,alpha)
+  else
+    K <- unique(Kvec)
+  if (length(K)>1) stop("K>1")
+  F_Gilb        <- alpha_star <= alpha/K
+  fam_size             <- c(size_F_alpha,K)
+  
+  # ---------- Adjustment 3 : mid pv --------------------------------
+  p_mid <- p - f_n*0.5
+  
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
+  
+  pa_Gilb <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
+  
+  pa_3  <- cbind(pa_BH_alpha,pa_Gilb)
+  
+  # ---------- Adjustment 5/6 : avg realized randomized pvalue (adp/non-adp)----------
+  pa_5_cum <- 0
+  set.seed(index_for_seed)
+  u_mat <- matrix(runif(n = length(p)*rr),nrow=length(p))
+  p_rand_mat <- p -  f_n*u_mat
+  
+  for (j in 1:rr)
+  {
+    
+    pa_BH_alpha <- rep(1,length(F_alpha))
+    pa_BH_alpha[F_alpha] <- p.adjust(p_rand_mat[F_alpha,j],"BH")
+  
+    pa_Gilb <- rep(1,length(F_Gilb))
+    pa_Gilb[F_Gilb] <- p.adjust(p_rand_mat[F_Gilb,j],"BH")
+  
+    pa_5_cum <- pa_5_cum + cbind(pa_BH_alpha,pa_Gilb)
+  }
+  pa_5_avg <- pa_5_cum/rr
+  pa_5_avg[!F_alpha,1] <- 1
+  pa_5_avg[!F_Gilb,2]  <- 1
+  
+  out <- data.frame(pa_mid_non_adp = pa_3,
+                    pa_arr_non_adp = pa_5_avg)
+  return(cbind(out,fam_size = t(fam_size)))
+}
 ```
 
 ```{r run}
@@ -491,7 +542,7 @@ kable(as.matrix(tbl3))
 ```{r simulation}
 # get tbl_222_sorted
 
-B <- 5000
+B <- 500
 sim_result_list <- tbl_p_list <- list()
 index_seed <- as.numeric(tbl_222_sorted$Outcome)
 tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
@@ -502,8 +553,8 @@ tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star)) 
   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
 tbl_K <- select(tbl_pa_each_first,fam_size.3)
 
-for (b in 1:B)
-{ b=1
+for (b in 500:2000)
+{ 
   cat(b,"\n")
   tbl_222_sim <- tbl_222_sorted %>%
     transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
@@ -512,25 +563,21 @@ for (b in 1:B)
   {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
   cbind(.,select(tbl_222_sorted,Outcome))
   tbl_pa_each_sim <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star),select(tbl_K,fam_size.3)) %>%
-    group_by(Outcome) %>% do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,
+    group_by(Outcome) %>% do(p_adjust_sim(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n,alpha = 0.05,rr = 100,
                                       Kvec = .$fam_size.3,index_for_seed = index_seed+b*max(index_seed)))
   sim_result_list[[b]] <- tbl_pa_each_sim
 }
 
-save(sim_result_list,file="sim_result_list.RData")
+save(sim_result_list[1:100],file="sim_all_true_null_100_result_list.RData")
 
-get_n_Rej <- function(x) as.data.frame(t(colSums(x<=0.05)))
+get_n_Rej <- function(y) as.data.frame(t(colSums(y<=0.05)))
 # summarize results:
-nRej  <- lapply(sim_result_list, FUN = function(x) {x %>%
-    group_by(Outcome) %>% do(get_n_Rej(.[-c(1,20:25)]))})
-fwe  <- lapply(nRej,function(x) x>1)
+nRej  <- lapply(sim_result_list, function(x) {x %>% group_by(Outcome) %>% do(get_n_Rej(.[2:5]))})
+fwe  <- lapply(nRej,function(x) 1<=x[-1])
 fwer <- Reduce('+', fwe)/length(nRej)
-cbind(unique(tbl_K),fwer)[c(9,19,24,41),-c(3:5,7,8,10,11,13,14,16,17,19,20)]
-
-save.image()
+fwer_results <- cbind(unique(tbl_K),fwer)
+save(fwer_results,file="fwer_results_all_true_null.RData")
 ```
-
-
 
 ```{r simulation_effect}
 OR = 5
