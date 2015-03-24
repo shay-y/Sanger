@@ -624,6 +624,7 @@ out <- array(dim = c(length(OR),B,2,43,4),dimnames = list(OR=OR,
                                                           OC=1:43,
                                                           PROC=1:4))
 
+
 get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
 
 for (k in 1:length(OR))
