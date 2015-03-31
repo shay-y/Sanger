@@ -44,7 +44,6 @@ output:
 |- |   |   |   |
 |  |n1 |n2 |   |
 
-
 ### Code:
 
 ```{r knitr_options, include=FALSE}
@@ -391,6 +390,15 @@ p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec 
   F_Gilb        <- alpha_star <= alpha/K
   fam_size             <- c(size_F_alpha,K)
   
+  # ---------- Adjustment 1 : original pv --------------------------------
+  pa_BH_alpha <- rep(1,length(F_alpha))
+  pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
+  
+  pa_Gilb <- rep(1,length(F_Gilb))
+  pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
+  
+  pa_1  <- cbind(pa_BH_alpha,pa_Gilb)
+  
   # ---------- Adjustment 3 : mid pv --------------------------------
   p_mid <- p - f_n*0.5
   
@@ -423,8 +431,9 @@ p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec 
   pa_5_avg[!F_alpha,1] <- 1
   pa_5_avg[!F_Gilb,2]  <- 1
   
-  out <- data.frame(pa_mid_non_adp = pa_3,
-                    pa_arr_non_adp = pa_5_avg)
+  out <- data.frame(pa_org = pa_1,
+                    pa_mid = pa_3,
+                    pa_rand = pa_5_avg)
   return(cbind(out,fam_size = t(fam_size)))
 }
 ```
@@ -547,8 +556,6 @@ tbl3 <- get_222_ftable(tbl_sig[3,])
 save(fam_sizes_n_rej,tbl_sig,tbl_sig_consice,tbl1,tbl2,tbl3,file = "objects_to_report.RData")
 ```
 
-### Results:
-
 ```{r print_tables, include = T, eval = T, results='asis'}
 load("objects_to_report.RData")
 kable(fam_sizes_n_rej)
@@ -560,21 +567,18 @@ kable(as.matrix(tbl3))
 
 ```{r simulation}
 # get tbl_222_sorted
-B <- 500
+B <- 2000
 sim_result_list <- tbl_p_list <- list()
 index_seed <- as.numeric(tbl_222_sorted$Outcome)
 tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp()
-tbl_p   <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)}
-
-installr()
-%>% 
+tbl_p   <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>%
+  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)}%>% 
   cbind(.,select(tbl_222_sorted,Outcome))
 tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
 tbl_K <- select(tbl_pa_each_first,fam_size.3)
 
-for (b in 500:2000)
+for (b in 1:B)
 { 
   cat(b,"\n")
   tbl_222_sim <- tbl_222_sorted %>%
@@ -589,40 +593,47 @@ for (b in 500:2000)
   sim_result_list[[b]] <- tbl_pa_each_sim
 }
 
-save(sim_result_list[1:100],file="sim_all_true_null_100_result_list.RData")
+sim_result_list_100<-sim_result_list[1:100]
+save(sim_result_list_100,file="sim_all_true_null_100_result_list.RData")
 
 get_n_Rej <- function(y) as.data.frame(t(colSums(y<=0.05)))
 # summarize results:
 nRej  <- lapply(sim_result_list, function(x) {x %>% group_by(Outcome) %>% do(get_n_Rej(.[2:5]))})
 fwe  <- lapply(nRej,function(x) 1<=x[-1])
-fwer <- Reduce('+', fwe)/length(nRej)
+fwe_array <- array(unlist(fwe), dim = c(nrow(fwe[[1]]), ncol(fwe[[1]]), length(fwe)))
+fwer <- apply(fwe_array,c(1,2),mean)
+fwer_se <- apply(fwe_array,c(1,2),sd)/dim(fwe_array)[3]
 fwer_results <- cbind(unique(tbl_K),fwer)
-save(fwer_results,file="fwer_results_all_true_null.RData")
+save(fwer_results,fwer_se,file="fwer_results_all_true_null.RData")
+
+load(file="fwer_results_all_true_null.RData")
+
+fwer_results %>% filter(fam_size.3>20)
 ```
 
 ```{r simulation_effect}
 sim_result_list <- tbl_p_list <- list()
 index_seed <- as.numeric(tbl_222_sorted$Outcome)
 tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
-tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>% 
+tbl_p <-   tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sorted,n111,n112)) %>% 
   {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
-  cbind(.,select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
+  cbind(.,dplyr::select(tbl_222_sorted,Outcome))
+tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K <- select(tbl_pa_each_first,fam_size.3)
+tbl_K <- dplyr::select(tbl_pa_each_first,fam_size.3)
 library(MCMCpack)
 
 m1 <- 100
-OR <- c(2,5,10)
+OR <- c(1,2,5,7,10)
 alpha <- 0.05
-B <- 500
+B <- 2000
 effect_ind <- as.vector(outer(1:m1,473*(0:42),"+"))
 # container [OR,B,1=FDR\2=POWER,OC,PROC]
-out <- array(dim = c(length(OR),B,2,43,4),dimnames = list(OR=OR,
+out <- array(dim = c(length(OR),B,2,43,6),dimnames = list(OR=OR,
                                                           b=1:B,
                                                           meassure=c("FDR","Power"),
                                                           OC=1:43,
-                                                          PROC=1:4))
+                                                          PROC=1:6))
 
 
 get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
@@ -653,9 +664,9 @@ for (b in 1:B)
     do(p_adjust_sim(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n, alpha = 0.05,rr = 100,
                     Kvec = .$fam_size.3,index_for_seed = index_seed+b*max(index_seed)))
   
-  R <- tbl_pa_each_sim %>% do(get_n_Rej(.[2:5]))
-  V <- tbl_pa_each_sim %>% filter(row_number()>m1)  %>%  do(get_n_Rej(.[2:5]))
-  S <- tbl_pa_each_sim %>% filter(row_number()<=m1) %>%  do(get_n_Rej(.[2:5]))
+  R <- tbl_pa_each_sim %>% do(get_n_Rej(.[2:7]))
+  V <- tbl_pa_each_sim %>% filter(row_number()>m1)  %>%  do(get_n_Rej(.[2:7]))
+  S <- tbl_pa_each_sim %>% filter(row_number()<=m1) %>%  do(get_n_Rej(.[2:7]))
 
   out[k,b,1,,]   <- as.matrix(V[-1]/pmax(as.matrix(R[-1]),1))
   out[k,b,2,,]   <- as.matrix(S[-1]/m1)
@@ -665,4 +676,30 @@ for (b in 1:B)
 save(out,file="sim_w_effect_results.RData")
 save.image(file="sim_w_effect_results_extras.RData")
 
+load(file="sim_w_effect_results.RData")
+load(file="sim_w_effect_results_extras.RData")
+
+fdr <- apply(out[,,1,,,drop=F],c(4,5,1),mean)
+pwr <- apply(out[,,2,,,drop=F],c(4,5,1),mean)
+
+F_sizes_alpha <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.1)) %>% select(F_size)
+F_sizes_Gilb <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.2)) %>% select(F_size)
+
+# FDR:
+par(mfrow=c(4,4))
+for(i in 1:43)
+{
+  matplot(colnames(fdr[i,c(1,3,5),]),t(fdr[i,c(1,3,5),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="fdr")
+  if(i %in% c(16,32,43)) dev.copy2pdf(file = paste0("fdr~OR_alpha",i,".pdf") ,height=11,width=11)
+}
+
+# Power
+par(mfrow=c(4,4))
+for(i in 1:43)
+{
+  matplot(colnames(pwr[i,c(1,3,5),]),t(pwr[i,c(1,3,5),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="Avg. Power")
+  if(i %in% c(16,32,43)) dev.copy2pdf(file = paste0("Power~OR_alpha",i,".pdf") ,height=11,width=11)
+}
+          
+          
 ```
