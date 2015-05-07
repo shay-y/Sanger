@@ -1,0 +1,213 @@
+---
+author: "Issues to consider : Sanger Dataset"
+output: html_document
+---
+
+```{r knitr_options, include=FALSE}
+library(knitr)
+library(dplyr)
+library(tidyr)
+opts_chunk$set(echo = FALSE, fig.width = 7,fig.height = 8)
+```
+
+1. simulation results : fdr control in all true nulls case.
+2. examples where it doesnt controlled
+3. logistf vs MH comparison
+4. estimating the FDR using EUMODIC high throughput phenotyping data.
+    * compare approaches
+    * resampling from the control to select a threshold ,considers data structure (litter or batch effects). would control for any issues with the statistical method implemented.
+    * from the local dataset level to control across the globally analysis.
+    * advantage that it is compatible across both continuous and categorical output 
+    * leads us to being able to control the FPR over __all the variables for a gene__ - most common IMPC user question.
+  
+(1) fdr control
+
+```
+                        Outcome  orig mid_p
+1  Number.Of.Thoracic.Vertebrae 0.015 0.016
+2    Number.Of.Lumbar.Vertebrae 0.033 0.034
+3    Number.Of.Pelvic.Vertebrae 0.011 0.011
+4    Number.Of.Caudal.Vertebrae 0.024 0.024
+5        Transitional.Vertebrae 0.007 0.045
+6            Shape.Of.Vertebrae 0.007 0.047
+7           Fusion.Of.Vertebrae 0.015 0.057
+8                       Maxilla 0.003 0.061**
+9                Zygomatic.Bone 0.000 0.000
+10 Number.Of.Cervical.Vertebrae 0.025 0.026
+11                  Skull.Shape 0.009 0.026
+12         Number.Of.Ribs.Right 0.002 0.010
+13          Number.Of.Ribs.Left 0.002 0.004
+14             Shape.Of.Ribcage 0.008 0.013
+15                Shape.Of.Ribs 0.019 0.022
+16                  Rib.Fusions 0.000 0.000
+17                     Clavicle 0.006 0.074**
+18                      Scapula 0.000 0.000
+19                      Humerus 0.001 0.001
+20                       Radius 0.008 0.008
+21                         Ulna 0.005 0.005
+22                       Pelvis 0.009 0.016
+23                        Femur 0.001 0.054
+24                        Tibia 0.000 0.000
+25                       Fibula 0.000 0.000
+26                       Joints 0.038 0.041
+27               Shape.Of.Spine 0.010 0.076**
+28                        Teeth 0.033 0.046
+29                     Mandible 0.000 0.000
+30             Number.Of.Digits 0.004 0.060
+31              Digit.Integrity 0.018 0.021
+32                 Syndactylism 0.000 0.000
+33             Polysyndactylism 0.005 0.005
+34              Brachydactylism 0.028 0.028
+35                     Kyphosis 0.019 0.019
+36                     Lordosis 0.000 0.000
+37                    Scoliosis 0.007 0.064**
+38             Fusion.Processes 0.006 0.050
+39             Caudal.Processes 0.000 0.000
+40           Cervical.Processes 0.000 0.000
+41             Lumbar.Processes 0.000 0.000
+42             Sacral.Processes 0.000 0.000
+43           Thoracic.Processes 0.024 0.029
+```
+
+(2) examples where it doesnt controlled
+
+Typical tables where fdr is controled
+
+```
+> tbl_222_sorted %>% slice(1:3) %>% rowwise() %>% do(print(get_222_ftable(.)))
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   2    0   0
+N                    7 927    7 922
+         Gender Female     Male    
+
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   2    0   0
+N                    7 927    7 922
+         Gender Female     Male    
+
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   2    0   0
+N                    7 927    6 922
+```
+Typical tables where fdr is __not__ controled
+
+```
+tbl_222_sorted %>% filter(Outcome=="Clavicle") %>% slice(1:3) %>% rowwise() %>%  do(print(get_222_ftable(.)))
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   0    0   3
+N                    7 929    7 919
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   0    0   3
+N                    7 929    7 919
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0   0    0   3
+N                    7 929    6 919
+
+tbl_222_sorted %>% filter(Outcome=="Shape.Of.Spine") %>% slice(1:3) %>% rowwise() %>%  do(print(get_222_ftable(.)))
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0  32    1  10
+N                    7 897    6 912
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0  32    0  10
+N                    6 897    7 912
+
+         Gender Female     Male    
+         Group      KO  WT   KO  WT
+Deformed                           
+Y                    0  32    1  10
+N                    7 897    5 912
+```
+
+```{r}
+load(file="sim_w_effect_results_2.RData")
+load(file="sim_w_effect_results_extras_2.RData")
+
+fdr <- apply(out[,,1,,,drop=F],c(4,5,1),mean)
+pwr <- apply(out[,,2,,,drop=F],c(4,5,1),mean)
+
+# key <- tbl_K %>% summarise(unique(fam_size.3)) %>% as.data.frame()
+# tt <- cbind(key,fdr[,,1])[]
+#data.frame(Outcome=tt$Outcome,orig=round(tt$`1`,3),mid_p=round(tt$`3`,3))
+
+par(mfrow=c(2,2))
+tbl_p %>% tbl_df() %>% filter(Outcome %in% c("Maxilla","Clavicle","Shape.Of.Spine","Scoliosis")) %>% group_by(Outcome) %>% do(plot(sort(.$p),pch="."))
+
+# cbind(tbl_K,tbl_pdf) %>% select(Outcome,alpha_star) %>% filter(Outcome %in% c("Maxilla","Clavicle","Shape.Of.Spine","Scoliosis")) %>% group_by(Outcome) %>% do(plot(sort(.$alpha_star),pch="."))
+# 
+# tbl_222_sorted %>% slice(1:3) %>% rowwise() %>% do(print(get_222_ftable(.)))
+# tbl_222_sorted %>% filter(Outcome=="Clavicle") %>% slice(1:3) %>% rowwise() %>%  do(print(get_222_ftable(.)))
+# tbl_222_sorted %>% filter(Outcome=="Shape.Of.Spine") %>% slice(1:3) %>% rowwise() %>%  do(print(get_222_ftable(.)))
+# 
+# 
+# 
+F_sizes_alpha <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.1)) %>% dplyr::select(F_size)
+F_sizes_Gilb <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.2)) %>% dplyr::select(F_size)
+```
+
+```{r}
+# FDR:
+par(mfrow=c(4,4))
+for(i in 1:43)
+{
+  matplot(colnames(fdr[i,c(1,3,5,7),]),t(fdr[i,c(1,3,5,7),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="fdr",ylim = c(0,0.07))
+  abline(h=0.05,col="grey")
+#   if(i %in% c(16,32,43))
+#   {
+#     # legend("top",inset=0,legend=c("org","mid","rand","rand1"),lty = 1:4,col = 1:4, horiz = TRUE,lwd=2, cex=.5,)
+#     # dev.copy2pdf(file = paste0("fdr~OR_alpha_2",i,".pdf") ,height=11,width=11)
+#   }
+}
+
+# Power
+par(mfrow=c(4,4))
+for(i in 1:43)
+{
+  matplot(colnames(pwr[i,c(1,3,5,7),]),t(pwr[i,c(1,3,5,7),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="Avg. Power",ylim = c(0,0.2))
+  # if(i %in% c(16,32,43)) dev.copy2pdf(file = paste0("Power~OR_alpha_2",i,".pdf") ,height=11,width=11)
+}
+          
+```
+
+### Notations:
+
+* Female: n..1
+
+|  |KO  |WT  |    |
+|--|:--:|:--:|:--:|
+|1 |n111|n121|n1.1|
+|0 |n211|n221|n2.1|
+|  |n.11|n.21|n..1|
+
+* Male: n..2
+
+|  |KO  |WT  |    |
+|--|:--:|:--:|:--:|
+|1 |n112|n122|n1.2|
+|0 |n212|n222|n2.2|
+|  |n.12|n.22|n..2|
+
+|  |KO |WT |   |
+|--|:-:|:-:|:-:|
+|1 |n11|n12|n1.|
+|0 |n21|n22|n2.|
+|  |n.1|n.2|n..|
+

@@ -1,0 +1,36 @@
+Inference About Rare Events Measurements in Mice While Controlling False Discovery Rate   
+========================================================
+date: 13.4.2015 
+
+Data Description:
+========================================================
+
+- Data contains (as response variables) 43 binary phenotypic measures
+  for example:
+  +  `Number.Of.Thoracic.Vertebrae` deformed: yes\no
+  +  `Zygomatic.Bone`               deformed: yes\no
+- Measures are taken from wildtype (WT) group n=~1500 as control group
+- ...and from 473 knockout (KO) groups n=~14, as "cases" groups.
+
+Statistical test:
+========================================================
+![table](table.JPG)
+
+* Fisher Exact Test : whether proportions of deformed are differ from case group to control group.
+
+* Variants on higher dimensions:
+ + conditioned\ stratified on third variable (male\female)
+ + interaction tests.
+
+
+========================================================
+- __Goal__: find a statistical procedure to discover significant patterns while controlling the FDR.
+
+- __challanges__:
+  + Rare events.
+  + post-selection inference\ multiplicity adjustment : 43 outcomes X 473 Knockouts = 20339
+      * hierarchical families: 43 outcomes in each of the 473 Knockouts _or_ 473 Knockouts in each of the 43 outcomes.
+    
+- __Solutions__:
+  + exact tests + FDR control procedures for discrete test statistics.
+  + FDR control procedures for hierarchical families.

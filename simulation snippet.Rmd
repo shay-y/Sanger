@@ -1,0 +1,142 @@
+---
+output: html_document
+---
+### simulation snippet
+
+Function `swap()` that gets two arguments: the p value `p` and the pdf value at the at the observed value of test statistic `f_n`. The function computes `p_swap`, calculates the threshold `t_max` and outputs a vector of rejections `R` of the size of `p`. 
+
+The second function print the tables for given row of the data frame.
+
+```{r, eval=FALSE}
+swap <-  function(p,f_n,q = 0.05)
+{
+  p_swap <- 1 - p + f_n 
+  S <- p_swap <= p
+  t_vec <- p
+  t_vec[S] <- p_swap[S]
+  t_vec <- unique(sort(t_vec))
+  t_max <- -1
+  for (ti in length(t_vec):1)
+  {
+    if ( (1 + sum(p_swap[S]<=t_vec[ti]))/max(sum(p[!S]<=t_vec[ti]),1) <= q )
+    {
+      t_max <- t_vec[ti]
+      break
+    }
+  }
+  R <- rep(F,length(p))
+  R[!S] <- p[!S]<=t_max
+  return(R)
+}
+
+get_222_ftable <- function(row)
+{
+  z <- array(c(row$n111,row$n211,row$n121,row$n221,row$n112,row$n212,row$n122,row$n222), dim=c(2, 2, 2))
+  #addmargins(z) 
+  dimnames(z) <- list("Deformed"=c("Y","N"),"Group"=c("KO","WT"),"Gender"=c("Female","Male"))
+  return(ftable(z,row.vars = 1,col.vars = c(3,2)))
+}
+
+```
+
+#### tables notations:
+
+```
+* Female: n..1
+ 
+   |  |KO  |WT  |    |
+   |--|:--:|:--:|:--:|
+   |1 |n111|n121|n1.1|
+   |0 |n211|n221|n2.1|
+   |  |n.11|n.21|n..1|
+   
+* Male: n..2
+ 
+   |  |KO  |WT  |    |
+   |--|:--:|:--:|:--:|
+   |1 |n112|n122|n1.2|
+   |0 |n212|n222|n2.2|
+   |  |n.12|n.22|n..2|
+```
+
+`tbl_sim` (in .RData file) is a data frame containing 20339 rows = 473 (KO) x 43 (Outcome).
+
+In each row there are:
+
+* Some of the 2x2x2 table margins.
+* ORIGINALY observed inner values `n111,n112,n121,n122,n211,n221,n212` and `n222`
+ I kept these merely for the margins computation in the function that print the tables for a given row: `get_222_ftable()`.
+* the cells `n111_sim`, `n112_sim`, resulted in one simulation run.
+* an indicator where are the true alternative hypotheses  (in this simulation run odds ratio = 5 where there true alternatives).
+* `pdf_list` - the pdf probabilities.
+* `supp_list` - the corresponding test statistic values.
+* `alpha_star`
+* `p` and `f_n` - the p-value and pdf value at the observed test statistic resulted from the simulation.
+
+Some code:
+
+```{r, eval=FALSE}
+load("tbl_sim.RData")
+
+names(tbl_sim)
+# first table in first outcome
+tbl_sim[1,]
+get_222_ftable(tbl_sim[1,])
+
+# first table in outcome "Pelvis"
+tbl_sim[tbl_sim$Outcome=="Pelvis",][1,]
+get_222_ftable(tbl_sim[tbl_sim$Outcome=="Pelvis",][1,])
+
+# second outcome "Number.Of.Lumbar.Vertebrae"
+
+p <- tbl_sim[tbl_sim$Outcome=="Number.Of.Lumbar.Vertebrae","p"]
+f_n <- tbl_sim[tbl_sim$Outcome=="Number.Of.Lumbar.Vertebrae","f_n"]
+true_alt <- tbl_sim[tbl_sim$Outcome=="Number.Of.Lumbar.Vertebrae","true_alt"]
+m1 <- sum(true_alt)
+
+summary(p)
+plot(sort(p))
+
+R_vec <- swap(p,f_n)
+
+(R <-  sum(R_vec))
+
+(V <- sum(R_vec & !true_alt))
+
+V/max(R,1) # FDR
+
+(S <- sum(R_vec & true_alt))
+
+S/m1 # Ave power
+
+u = unique(tbl_sim$Outcome)
+b=2
+pv = tbl_sim$p[tbl_sim$Outcome==u[b]]
+pv.swapped =1-tbl_sim$p[tbl_sim$Outcome==u[b]]+tbl_sim$f_n[tbl_sim$Outcome==u[b]] 
+f_n = tbl_sim$f_n[tbl_sim$Outcome==u[b]]
+is.null = 1-tbl_sim$true_alt[tbl_sim$Outcome==u[b]] 
+cbind(pv, pv.swapped, f_n)[pmin(pv, pv.swapped)<=0.1 & is.null==1,]
+
+pv.swapped<=0.1
+
+xx <- tbl_sim[which(tbl_sim$Outcome==u[b] & tbl_sim$p<=0.1)[2],]
+cbind(xx$supp_list[[1]],xx$pdf_list[[1]])
+plot(xx$supp_list[[1]],xx$pdf_list[[1]])
+
+plot(tbl_sim$pdf_list[[1000]]~tbl_sim$supp_list[[1000]])
+```
+
+I think there is a problem with the computation of the swapped pvalues. From the following code it seems that 
+all of the small values (of p or swapped p) under the null come from p-values, none from swapped pvalues. Under the null it should be that the small values have equal probability of being from p or swapped p. Why is this anomaly happening? How exactly are you computing the swapped p values? It seems that when p from null is relatively small, swapped p will be large (which makes sense), but when p from null is large (1, or close to 1), swapped p is not small (which does not make sense)..
+
+u = unique(tbl_sim$Outcome)
+b=2
+pv = tbl_sim$p[tbl_sim$Outcome==u[b]]
+pv.swapped =1-tbl_sim$p[tbl_sim$Outcome==u[b]]+tbl_sim$f_n[tbl_sim$Outcome==u[b]] 
+f_n = tbl_sim$f_n[tbl_sim$Outcome==u[b]]
+is.null = 1-tbl_sim$true_alt[tbl_sim$Outcome==u[b]] 
+cbind(pv, pv.swapped, f_n)[pmin(pv, pv.swapped)<=0.1 & is.null==1,]
+
+
+
+

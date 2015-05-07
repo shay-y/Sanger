@@ -1,0 +1,201 @@
+\documentclass[]{article}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+    \usepackage{xltxtra,xunicode}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Mapping=tex-text,Scale=MatchLowercase}
+  \newcommand{\euro}{€}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable,booktabs}
+\ifxetex
+  \usepackage[setpagesize=false, % page size defined by xetex
+              unicode=false, % unicode breaks when used with xetex
+              xetex]{hyperref}
+\else
+  \usepackage[unicode=true]{hyperref}
+\fi
+\hypersetup{breaklinks=true,
+            bookmarks=true,
+            pdfauthor={R.H; S.Y},
+            pdftitle={False discovery rate procedures for discrete tests: analysis of the data from the Wellcome Trust Sanger Institute Mouse Genetics Project},
+            colorlinks=true,
+            citecolor=blue,
+            urlcolor=blue,
+            linkcolor=magenta,
+            pdfborder={0 0 0}}
+\urlstyle{same}  % don't use monospace font for urls
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\setcounter{secnumdepth}{0}
+
+%%% Use protect on footnotes to avoid problems with footnotes in titles
+\let\rmarkdownfootnote\footnote%
+\def\footnote{\protect\rmarkdownfootnote}
+
+%%% Change title format to be more compact
+\usepackage{titling}
+\setlength{\droptitle}{-2em}
+  \title{False discovery rate procedures for discrete tests: analysis of the data
+from the Wellcome Trust Sanger Institute Mouse Genetics Project}
+  \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+  \author{R.H; S.Y}
+  \preauthor{\centering\large\emph}
+  \postauthor{\par}
+  \predate{\centering\large\emph}
+  \postdate{\par}
+  \date{Mars 04, 2015}
+
+
+
+
+\begin{document}
+
+\maketitle
+
+
+\subsubsection{Notations:}\label{notations}
+
+\begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
+\item
+  Female: n..1
+\end{itemize}
+
+\begin{longtable}[c]{@{}lccc@{}}
+\toprule
+& KO & WT &\tabularnewline
+\midrule
+\endhead
+1 & n111 & n121 & n1.1\tabularnewline
+0 & n211 & n221 & n2.1\tabularnewline
+& n.11 & n.21 & n..1\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{itemize}
+\itemsep1pt\parskip0pt\parsep0pt
+\item
+  Male: n..2
+\end{itemize}
+
+\begin{longtable}[c]{@{}lccc@{}}
+\toprule
+& KO & WT &\tabularnewline
+\midrule
+\endhead
+1 & n112 & n122 & n1.2\tabularnewline
+0 & n212 & n222 & n2.2\tabularnewline
+& n.12 & n.22 & n..2\tabularnewline
+\bottomrule
+\end{longtable}
+
+\subsubsection{Results:}\label{results}
+
+\begin{longtable}[c]{@{}lrrrr@{}}
+\toprule
+Outcome & main\_effect\_size & main\_effect\_rej & interaction\_size &
+interaction\_rej\tabularnewline
+\midrule
+\endhead
+Number.Of.Thoracic.Vertebrae & 469 & 4 & 1 & 0\tabularnewline
+Number.Of.Lumbar.Vertebrae & 473 & 8 & 8 & 2\tabularnewline
+Number.Of.Pelvic.Vertebrae & 473 & 4 & 4 & 0\tabularnewline
+Number.Of.Caudal.Vertebrae & 473 & 8 & 7 & 0\tabularnewline
+Transitional.Vertebrae & 473 & 16 & 13 & 0\tabularnewline
+Shape.Of.Vertebrae & 473 & 2 & 2 & 1\tabularnewline
+Fusion.Of.Vertebrae & 467 & 24 & 23 & 0\tabularnewline
+Maxilla & 473 & 4 & 3 & 0\tabularnewline
+Zygomatic.Bone & 469 & 2 & 0 & 0\tabularnewline
+Number.Of.Cervical.Vertebrae & 469 & 2 & 0 & 0\tabularnewline
+Skull.Shape & 473 & 13 & 11 & 0\tabularnewline
+Number.Of.Ribs.Right & 473 & 3 & 3 & 0\tabularnewline
+Number.Of.Ribs.Left & 473 & 6 & 4 & 0\tabularnewline
+Shape.Of.Ribcage & 473 & 6 & 6 & 0\tabularnewline
+Shape.Of.Ribs & 466 & 3 & 0 & 0\tabularnewline
+Rib.Fusions & 1 & 1 & 0 & 0\tabularnewline
+Scapula & 2 & 2 & 0 & 0\tabularnewline
+Humerus & 466 & 2 & 0 & 0\tabularnewline
+Radius & 473 & 2 & 1 & 0\tabularnewline
+Ulna & 473 & 2 & 1 & 0\tabularnewline
+Pelvis & 473 & 7 & 6 & 0\tabularnewline
+Tibia & 466 & 2 & 0 & 0\tabularnewline
+Fibula & 3 & 3 & 0 & 0\tabularnewline
+Joints & 473 & 2 & 1 & 0\tabularnewline
+Shape.Of.Spine & 473 & 4 & 4 & 0\tabularnewline
+Teeth & 473 & 6 & 6 & 0\tabularnewline
+Mandible & 2 & 2 & 0 & 0\tabularnewline
+Digit.Integrity & 473 & 2 & 2 & 0\tabularnewline
+Kyphosis & 473 & 10 & 9 & 0\tabularnewline
+Lordosis & 1 & 1 & 0 & 0\tabularnewline
+Fusion.Processes & 473 & 27 & 20 & 0\tabularnewline
+Caudal.Processes & 8 & 8 & 0 & 0\tabularnewline
+Thoracic.Processes & 467 & 39 & 36 & 0\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{longtable}[c]{@{}llrrrr@{}}
+\toprule
+Outcome & Group & p\_main & p\_mid\_main & p\_int &
+p\_mid\_int\tabularnewline
+\midrule
+\endhead
+Number.Of.Lumbar.Vertebrae & MDHR\_HET & 0.0001444 & 7.35e-05 &
+0.0166399 & 0.0083200\tabularnewline
+Number.Of.Lumbar.Vertebrae & MFPQ\_HET & 0.0001444 & 7.35e-05 &
+0.0166399 & 0.0083200\tabularnewline
+Shape.Of.Vertebrae & MUDF\_HET & 0.0001648 & 8.73e-05 & 0.0287678 &
+0.0156598\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{longtable}[c]{@{}lrrrr@{}}
+\toprule
+& Female\_KO & Female\_WT & Male\_KO & Male\_WT\tabularnewline
+\midrule
+\endhead
+Y & 3 & 2 & 0 & 10\tabularnewline
+N & 4 & 927 & 7 & 912\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{longtable}[c]{@{}lrrrr@{}}
+\toprule
+& Female\_KO & Female\_WT & Male\_KO & Male\_WT\tabularnewline
+\midrule
+\endhead
+Y & 3 & 2 & 0 & 10\tabularnewline
+N & 4 & 927 & 7 & 912\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{longtable}[c]{@{}lrrrr@{}}
+\toprule
+& Female\_KO & Female\_WT & Male\_KO & Male\_WT\tabularnewline
+\midrule
+\endhead
+Y & 0 & 31 & 5 & 42\tabularnewline
+N & 7 & 898 & 2 & 880\tabularnewline
+\bottomrule
+\end{longtable}
+
+\end{document}
