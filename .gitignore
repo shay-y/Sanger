@@ -4,3 +4,32 @@
 "Report Natasha 1.Rmd"
 "conditional expectation.R"
 "test agregate.R"
+all.RData
+NonparametricStatisticalMethods.pdf
+TexDrafts
+fwer_results_all_true_null.RData
+m1_hat.RData
+m1_p1_mats.RData
+m1p1sizeF_1.RData
+objects_to_report.RData
+sim_all_true_null_100_result_list.RData
+sim_w_effect_results.RData
+sim_w_effect_results_2.RData
+sim_w_effect_results_2_2.RData
+sim_w_effect_results_2_2_1.RData
+sim_w_effect_results_2_2_b700_k3.RData
+sim_w_effect_results_extras.RData
+sim_w_effect_results_extras_2.RData
+sim_w_effect_results_extras_2_2.RData
+sim_w_effect_results_swap_x.RData
+sim_w_effect_results_swap_x_extras.RData
+tables_all.RData
+tables_all_cond.RData
+tables_all_int.RData
+tables_each.RData
+tables_each_cond.RData
+tb_all.RData
+tb_each.RData
+tbl_sim.RData
+tbs_each.RData
+zelen.pdf
