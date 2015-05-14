@@ -70,12 +70,13 @@ fdr.threshold2 = function (X, X.swapped, fdr = 0.05)
   ifelse(length(ok) > 0, min(ts[ok]), Inf)
 }
 
-swap_x <-  function(x,n,q = 0.05)
+swap_x <- function(x,n,q = 0.05)
 {
   x_swap <- n - x 
   S <- x_swap >= x
   t_vec <- unique(sort(pmax(x,x_swap)))
-  t_min <- -1
+  t_min <- Inf
+  q <- 0.05
   for (ti in 1:length(t_vec))
   {
     if ( (1 + sum(x_swap[S]>=t_vec[ti]))/max(sum(x[!S]>=t_vec[ti]),1) <= q )
@@ -84,7 +85,7 @@ swap_x <-  function(x,n,q = 0.05)
       break
     }
   }
-  R <- rep(F,length(p))
+  R <- rep(F,length(x))
   R[!S] <- x[!S]>=t_min
   return(R)
 }
@@ -97,6 +98,10 @@ simDebug =function(pi0,p1,m=1000,B = 1000)
   R = NULL
   S = NULL
   fdp = NULL
+  R1 = NULL
+  S1 = NULL
+  fdp1 = NULL
+  
   R.BH = NULL
   S.BH= NULL
   fdp.BH = NULL
@@ -110,17 +115,18 @@ simDebug =function(pi0,p1,m=1000,B = 1000)
   m0 =m*pi0
   for ( b in 1:B){
     x= c(rbinom(m0,n,prob=0.5),rbinom(m-m0,n,prob=p1))
-   x.swapped = n-x
-    # pv = 1-pbinom(x-1,n,1/2 )
-  #  pv.swapped = pbinom(x,n,1/2 )
-    #head(cbind(x, pv, pv.swapped, pv+pv.swapped-1, dbinom(x, n, 0.5)))
+    x.swapped = n-x
     out = fdr.threshold2(x,x.swapped, fdr = alpha)
     print(c(b,out))
     R[b] = sum(x>=out & x>x.swapped)
     S[b]= sum(x[is.null==0]>=out & x[is.null==0]>x.swapped[is.null==0])
-    print(c(b,out, R[b], S[b]))
-    
+    r <- swap_x(x = x,n = n)
+    R1[b] = sum(r)
+    S1[b]= sum(r[is.null==0])
+    print(c(b,out, R[b],R1[b],S[b],S1[b]))
     fdp[b] = (R[b]-S[b])/max(1,R[b])
+    fdp1[b] = (R1[b]-S1[b])/max(1,R1[b])
+    
   }
   return(list(R=R, S=S, fdp = fdp, pi0=pi0, p1=p1, m=m ))
 }

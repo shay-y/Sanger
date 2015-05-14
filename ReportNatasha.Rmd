@@ -115,7 +115,7 @@ rm(list = ls()[!(ls() %in% c("tbl_222_sorted","XrayVariableList_c"))])
 # ---------------- functions definitions: -----------------------------------------
 
 # print 2X2x2 table for given row of tbl_222:
-get_222_ftable <- function(row)
+print_ftable <- function(row)
 {
   z <- array(c(row$n111,row$n211,row$n121,row$n221,row$n112,row$n212,row$n122,row$n222), dim=c(2, 2, 2))
   #addmargins(z) 
@@ -174,7 +174,7 @@ mod.zelen.test<-function (row)
   return(data.frame(p=p,alpha_star=alpha_star,f_n=f_n,kappa=kappa))
 }
 
-get_cond_test_pdf_supp <- function (df) 
+MH_get_pdf_and_supp <- function (df) 
 {
   ## deformed in KO (F and M) ; white balls in hand
   xx1 <- df$n111
@@ -208,7 +208,7 @@ get_cond_test_pdf_supp <- function (df)
   return(data.frame(pdf_list=I(pdf_list),supp_list=I(supp_list),alpha_star=alpha_star))
 }
 
-get_cond_test_pvs <- function(pdf_list,supp_list,xx1,xx2)
+MH_get_pv <- function(pdf_list,supp_list,xx1,xx2)
 {
   xx <- xx1+xx2
   ind_pv <- mapply(function(supp,xx) which(rev(supp)==(xx))[1],supp_list,xx)
@@ -216,6 +216,43 @@ get_cond_test_pvs <- function(pdf_list,supp_list,xx1,xx2)
   f_n <-   mapply(function(pdf,ind_pv) rev(pdf)[ind_pv], pdf_list, ind_pv)
   kappa <- mapply(function(pdf,f_n) sum(pdf==f_n), pdf_list, f_n)   
   return(data.frame(p = p,f_n = f_n,kappa = kappa))
+}
+
+swap_x <- function(x,n,q = 0.05)
+{
+  x_swap <- n - x 
+  S <- x_swap >= x
+  t_vec <- unique(sort(pmax(x,x_swap)))
+  t_min <- Inf
+  for (ti in 1:length(t_vec))
+  {
+    if ( (1 + sum(x_swap[S]>=t_vec[ti]))/max(sum(x[!S]>=t_vec[ti]),1) <= q )
+    {
+      t_min <- t_vec[ti]
+      break
+    }
+  }
+  R <- rep(F,length(x))
+  R[!S] <- x[!S]>=t_min
+  return(R)
+}
+
+swap_x_v2 <- function(x,x_swap,q = 0.05)
+{
+  S <- x_swap >= x
+  t_vec <- unique(sort(pmax(x,x_swap)))
+  t_min <- Inf
+  for (ti in 1:length(t_vec))
+  {
+    if ( (1 + sum(x_swap[S]>=t_vec[ti]))/max(sum(x[!S]>=t_vec[ti]),1) <= q )
+    {
+      t_min <- t_vec[ti]
+      break
+    }
+  }
+  R <- rep(F,length(x))
+  R[!S] <- x[!S]>=t_min
+  return(R)
 }
 
 ## Tarone family size, given alpha_stars: 
@@ -232,152 +269,8 @@ findK <- function(alpha_star,alpha,verbose=T)
   return (K)
 }
 
-## estimate pi0 conditional expectation over U[0,1] (Dickhaus 2012):
-Pi_0_est_EU <- function(p,f_n,kappa,in_fam,lambda)
-{
-  ## size of the sub-family:
-  m_tag <- sum(in_fam)
-  ## logical vector of size of in_fam that indicates where p-value is between lambda and lambda + next step in pdf:
-  lpl <- (lambda < p[in_fam]) & (p[in_fam] <= lambda + kappa[in_fam]*f_n[in_fam])
-  ## formula for the conditional expectation over uniform (0,1):
-  ecdf_lambda_EU <- (sum(p[in_fam]<=lambda))/m_tag + (sum(1 - (p[in_fam][lpl]-lambda) / (kappa[in_fam][lpl]*f_n[in_fam][lpl]) ))/m_tag
-  ## and the expectation of the pi_0 estimate
-  Pi_0_hat_EU <- (1-ecdf_lambda_EU)/(1-lambda)
-  return(Pi_0_hat_EU)
-}
-
-## adaptive BH given pi0 estimate: 
-p_adjust_adaptive <- function(p,pi_0_hat)
-{
-  lp <- length(p)
-  i <- lp:1L
-  o <- order(p, decreasing = TRUE)
-  ro <- order(o)
-  pmin(1, cummin(lp*pi_0_hat/i * p[o]))[ro]
-}
-
-## multiplicity adjustments
-p_adjust <- function(p,alpha_star,f_n,kappa,alpha = 0.05,lambda = 0.05,index_for_seed = 1, Kvec = NULL, rr=500)
-{
-  ## sub families sizes and indices:
-  F_alpha       <- alpha_star <= alpha
-  size_F_alpha  <- sum(F_alpha)
-  if (is.null(Kvec))
-    K <- findK(alpha_star,alpha = 0.05)
-  else
-    K <- unique(Kvec)
-  if (length(K)>1) stop("K>1")
-  F_Gilb        <- alpha_star <= alpha/K
-  
-  fam_size             <- c(length(p),size_F_alpha,K)
-  
-  # ---------- Adjustment 1 original pv -------------------
-  
-  pa_BH <- p.adjust(p,"BH")
-  
-  ## BH on alpha_star-smaller-than-alpha:
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
-  
-  ## BH on Tarone family:
-  pa_Gilb <- rep(1,length(F_Gilb))
-  pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
-  
-  pa_1 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-  
-  # ---------- Adjustment 2 : adaptive pv -------------------
-  
-  # get pi_0 estimates for each sub family:
-  pi_0_all   <- Pi_0_est_EU(p,f_n,kappa,in_fam = rep(T,length(p)),lambda = lambda)
-  pi_0_alpha <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_alpha,lambda = lambda)
-  pi_0_Tar   <- Pi_0_est_EU(p,f_n,kappa,in_fam = F_Gilb ,lambda = lambda)
-  
-  pi0 <- c(pi_0_all,pi_0_alpha,pi_0_Tar)
-  
-  # adjustment:
-  pa_BH      <- p_adjust_adaptive(p = p, pi_0_hat = pi_0_all)
-  
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p[F_alpha], pi_0_hat = pi_0_alpha)
-  
-  pa_Gilb    <- rep(1,length(F_Gilb))
-  pa_Gilb[F_Gilb]      <- p_adjust_adaptive(p = p[F_Gilb] , pi_0_hat = pi_0_Tar)
-  
-  pa_2  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-  
-  # ---------- Adjustment 3 : mid pv --------------------------------
-  p_mid <- p - f_n*0.5
-  
-  pa_BH <- p.adjust(p_mid,"BH")
-  
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
-  
-  pa_Gilb <- rep(1,length(F_Gilb))
-  pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
-  
-  pa_3  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-  
-  # ---------- Adjustment 4 : adaptive mid-pv -------------------
-  pa_BH       <- p_adjust_adaptive(p = p_mid, pi_0_hat = pi_0_all)
-  
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_mid[F_alpha], pi_0_hat = pi_0_alpha)
-  
-  pa_Gilb     <- rep(1,length(F_Gilb))
-  pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_mid[F_Gilb] , pi_0_hat = pi_0_Tar)
-  
-  pa_4 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-  
-  # ---------- Adjustment 5/6 : avg realized randomized pvalue (adp/non-adp)----------
-  pa_5_cum <- pa_6_cum <- 0
-  for (i in 1:rr)
-  {
-    # (1:500) (500+1:500) (2*500+1:500)
-    set.seed(i+rr*index_for_seed)
-    u <- runif(n = length(p))
-    p_rand <- p - f_n*u
-    
-    pa_BH <- p.adjust(p_rand,"BH")
-  
-    pa_BH_alpha <- rep(1,length(F_alpha))
-    pa_BH_alpha[F_alpha] <- p.adjust(p_rand[F_alpha],"BH")
-  
-    pa_Gilb <- rep(1,length(F_Gilb))
-    pa_Gilb[F_Gilb] <- p.adjust(p_rand[F_Gilb],"BH")
-  
-    pa_5  <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-    
-    pa_5_cum <- pa_5_cum + pa_5
-    
-    pa_BH       <- p_adjust_adaptive(p = p_rand, pi_0_hat = pi_0_all)
-  
-    pa_BH_alpha <- rep(1,length(F_alpha))
-    pa_BH_alpha[F_alpha] <- p_adjust_adaptive(p = p_rand[F_alpha], pi_0_hat = pi_0_alpha)
-  
-    pa_Gilb     <- rep(1,length(F_Gilb))
-    pa_Gilb[F_Gilb] <- p_adjust_adaptive(p = p_rand[F_Gilb] , pi_0_hat = pi_0_Tar)
-  
-    pa_6 <- cbind(pa_BH,pa_BH_alpha,pa_Gilb)
-  
-    pa_6_cum <- pa_6_cum + pa_6
-  }
-  pa_5_avg <- pa_5_cum/rr
-  pa_6_avg <- pa_6_cum/rr
-  
-  
-  out <- data.frame(pa_original_non_adp = pa_1,
-             pa_original_adp = pa_2,
-             pa_mid_non_adp = pa_3,
-             pa_mid_adp = pa_4,
-             pa_arr_non_adp = pa_5_avg,
-             pa_arr_adp = pa_6_avg)
-
-  return(cbind(out,fam_size = t(fam_size),pi0 = t(pi0)))
-}
-
 ## multiplicity adjustments - for simulation
-p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec = NULL, rr=500)
+p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec = NULL)
 {
   ## sub families sizes and indices:
   F_alpha       <- alpha_star <= alpha
@@ -409,45 +302,9 @@ p_adjust_sim <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec 
   pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
   
   pa_3  <- cbind(pa_BH_alpha,pa_Gilb)
-  
-  # ---------- Adjustment 5 : avg realized randomized pvalue ----------
-  pa_5_cum <- 0
-  set.seed(index_for_seed)
-  u_mat <- matrix(runif(n = length(p)*rr),nrow=length(p))
-  p_rand_mat <- p -  f_n*u_mat
-  
-  for (j in 1:rr)
-  {
-    
-    pa_BH_alpha <- rep(1,length(F_alpha))
-    pa_BH_alpha[F_alpha] <- p.adjust(p_rand_mat[F_alpha,j],"BH")
-  
-    pa_Gilb <- rep(1,length(F_Gilb))
-    pa_Gilb[F_Gilb] <- p.adjust(p_rand_mat[F_Gilb,j],"BH")
-  
-    pa_5_cum <- pa_5_cum + cbind(pa_BH_alpha,pa_Gilb)
-  }
-  pa_5_avg <- pa_5_cum/rr
-  pa_5_avg[!F_alpha,1] <- 1
-  pa_5_avg[!F_Gilb,2]  <- 1
-  
-  # ---------- Adjustment 7 : 1 realized randomized pvalue )----------
-  set.seed(index_for_seed)
-  u <- runif(n = length(p))
-  p_rand <- p -  f_n*u
-    
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_BH_alpha[F_alpha] <- p.adjust(p_rand[F_alpha],"BH")
-  
-  pa_Gilb <- rep(1,length(F_Gilb))
-  pa_Gilb[F_Gilb] <- p.adjust(p_rand[F_Gilb],"BH")
-  
-  pa_7 <- cbind(pa_BH_alpha,pa_Gilb)
-  
+
   out <- data.frame(pa_org = pa_1,
-                    pa_mid = pa_3,
-                    pa_rand = pa_5_avg,
-                    pa_rand1 = pa_7)
+                    pa_mid = pa_3)
   return(cbind(out,fam_size = t(fam_size)))
 }
 
@@ -471,105 +328,6 @@ swap <-  function(p,f_n,q = 0.05)
   R <- rep(F,length(p))
   R[!S] <- p[!S]<=t_max
   return(R)
-}
-
-swap_x <- function(x,n,q = 0.05)
-{
-  x_swap <- n - x 
-  S <- x_swap >= x
-  t_vec <- unique(sort(pmax(x,x_swap)))
-  t_min <- Inf
-  for (ti in 1:length(t_vec))
-  {
-    if ( (1 + sum(x_swap[S]>=t_vec[ti]))/max(sum(x[!S]>=t_vec[ti]),1) <= q )
-    {
-      t_min <- t_vec[ti]
-      break
-    }
-  }
-  R <- rep(F,length(x))
-  R[!S] <- x[!S]>=t_min
-  return(R)
-}
-
-## multiplicity adjustments - for simulation 2 - median randomized p value and candes
-p_adjust_sim_2 <- function(p,alpha_star,f_n,alpha = 0.05,index_for_seed = 1, Kvec = NULL, rr=500)
-{
-  ## sub families sizes and indices:
-  F_alpha       <- alpha_star <= alpha
-  size_F_alpha  <- sum(F_alpha)
-  if (is.null(Kvec))
-    K <- findK(alpha_star,alpha)
-  else
-    K <- unique(Kvec)
-  if (length(K)>1) stop("K>1")
-  F_Gilb        <- alpha_star <= alpha/K
-  fam_size             <- c(size_F_alpha,K)
-  
-#   # ---------- Adjustment 1 : original pv --------------------------------
-#   pa_BH_alpha <- rep(1,length(F_alpha))
-#   pa_BH_alpha[F_alpha] <- p.adjust(p[F_alpha],"BH")
-#   
-#   pa_Gilb <- rep(1,length(F_Gilb))
-#   pa_Gilb[F_Gilb] <- p.adjust(p[F_Gilb],"BH")
-#   
-#   pa_1  <- cbind(pa_BH_alpha,pa_Gilb)
-#   
-#   # ---------- Adjustment 3 : mid pv --------------------------------
-#   p_mid <- p - f_n*0.5
-#   
-#   pa_BH_alpha <- rep(1,length(F_alpha))
-#   pa_BH_alpha[F_alpha] <- p.adjust(p_mid[F_alpha],"BH")
-#   
-#   pa_Gilb <- rep(1,length(F_Gilb))
-#   pa_Gilb[F_Gilb] <- p.adjust(p_mid[F_Gilb],"BH")
-#   
-#   pa_3  <- cbind(pa_BH_alpha,pa_Gilb)
-   
-  # ---------- Adjustment 9 : median realized randomized pvalue ----------
-  set.seed(index_for_seed)
-  u_mat <- matrix(runif(n = length(p)*rr),nrow=length(p))
-  p_rand_mat <- p -  f_n*u_mat
-  pa_BH_alpha_rand_mat <- matrix(NA, ncol= rr,nrow=length(p))
-  pa_Gilb_rand_mat <- matrix(NA, ncol= rr,nrow=length(p))
-  
-  for (j in 1:rr)
-  {
-    pa_BH_alpha <- rep(1,length(F_alpha))
-    pa_BH_alpha[F_alpha] <- p.adjust(p_rand_mat[F_alpha,j],"BH")
-  
-    pa_Gilb <- rep(1,length(F_Gilb))
-    pa_Gilb[F_Gilb] <- p.adjust(p_rand_mat[F_Gilb,j],"BH")
-  
-    pa_BH_alpha_rand_mat[,j] <- pa_BH_alpha
-    pa_Gilb_rand_mat[,j] <- pa_Gilb
-  }
-  
-  apply(matrix(1:12,nrow = 4),1,median)
-  
-  pa_9_med <- apply(pa_BH_alpha_rand_mat,1,median)
-  pa_9_med[!F_alpha] <- 1
-  pa_10_med <- apply(pa_Gilb_rand_mat,1,median)
-  pa_10_med[!F_Gilb]  <- 1
-  
-  # ---------- Adjustment 11 :candes  ---------
-  r_F_alpha <- swap(p[F_alpha],f_n[F_alpha],q=alpha)
-  r_F_Gilb  <- swap(p[F_Gilb],f_n[F_Gilb],q=alpha)
-  
-  pa_BH_alpha <- rep(1,length(F_alpha))
-  pa_Gilb <- rep(1,length(F_Gilb))
-  
-  pa_BH_alpha[F_alpha] <- as.numeric(!r_F_alpha)
-  pa_Gilb[F_Gilb]      <- as.numeric(!r_F_Gilb)
-  
-  pa_swap1 <- pa_BH_alpha
-  pa_swap2 <- pa_Gilb
-  
-  out <- data.frame(pa_med1 = pa_9_med,
-                    pa_med2 = pa_10_med,
-                    pa_swap1,
-                    pa_swap2)
-  return(cbind(out,fam_size = t(fam_size)))
 }
 
 p_adjust_sim_swap <- function(p,alpha_star,f_n,alpha = 0.05, Kvec = NULL)
@@ -603,459 +361,16 @@ p_adjust_sim_swap <- function(p,alpha_star,f_n,alpha = 0.05, Kvec = NULL)
 }
 ```
 
-```{r run_once}
-
-## ----  [old] get pvalue for test on marginal 2X2 tables (no female\male effect) ------
-# attach(tbl_222_sorted)
-# ## deformed in KO (both F and M)
-# xx <- n11.
-# ## deformed in KO and WT(both F and M)
-# mm <- n1..
-# ## not deformed in KO and WT (both F and  M)
-# nn <- n2..
-# ## in KO deformed and not deformed(both F and M)
-# kk <- n.1.
-# 
-# BB  <- pmin(mm,kk)
-# 
-# # get pv (right tail)
-# p  <- dhyper(x = xx, m = mm, n = nn, k = kk) + phyper(q = xx, m = mm, n = nn, k = kk, lower.tail = FALSE)
-# 
-# ## get "alpha star" (the minimum attainable p-value due to discreteness):
-# alpha_star <- dhyper(x=BB, m = mm, n = nn, k = kk)
-# 
-# ## get the highest pdf value within the observed significance:
-# f_n <- dhyper(x = xx, m = mm, n = nn, k = kk)
-# 
-# ## get the number of occurences of this value (usually one):
-# kappa <- apply(cbind(BB,mm,nn,kk,f_n),1,
-#                function(x) sum(dhyper(x = 0:x[1], m = x[2], n = x[3], k = x[4])==x[5]))
-
-## ----  [new] get pvalue for mantel-haenszel test and interaction test: ----
-
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
-
-tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)}
-
-tbl_p_int <- tbl_222_sorted %>% rowwise() %>%  do(mod.zelen.test(.)) 
-
-## ----  [old] multiplicity adjustment 1: "all-outcomes-together" family: -----
-alpha <- 0.05
-## adjustments for the p values of the MH tests:
-tbl_pa_all     <- ungroup(tbl_p) %>% do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
-
-tb_all <- tbl_pa_all %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
-  summarise_each(funs(sum(.<=alpha)))
-
-tb_all_named <- as.data.frame(matrix(tb_all,nrow = 3, dimnames = list(c("pa_BH","pa_BH_alpha","pa_Gilb"),
-  c("pa_original_non_adp","pa_original_adp","pa_mid_non_adp","pa_mid_adp","pa_rand_non_adp","pa_rand_adp"))))
-
-fam_size <- t(select(tbl_pa_all,starts_with("fam"))[1,])
-pi0      <- t(select(tbl_pa_all,starts_with("pi0"))[1,])
-
-(tb_all_2 <- cbind(tb_all_named,fam_size,pi0))
-
-tb_rej_in_each_oc_0_05 <-  cbind(tbl_222_sorted,tbl_p) %>%
-  select(Outcome ,ends_with("pa_BH_alpha")) %>%
-  group_by(Outcome) %>%
-  summarise_each(funs(sum(.<=alpha)))
-
-tb_rej_in_each_oc_Gilb <-  cbind(tbl_222_sorted,tbl_p) %>%
-  select(Outcome ,ends_with("pa_Gilb")) %>%
-  group_by(Outcome) %>%
-  summarise_each(funs(sum(.<=alpha)))
-
-save(tb_all_2,tb_rej_in_each_oc_0_05,tb_rej_in_each_oc_Gilb,file="tables_all.RData")
-
-## ----  [new] multiplicity adjustment 2: each-outcome-seperatly ----
-
-## adjustments for the p values of the MH tests:
-
-tbl_pa_each     <- cbind(select(tbl_222_sorted,Outcome),tbl_p) %>% group_by(Outcome) %>% 
-  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
-
-
-## adjustments for the p values of the Zelen(interaction) tests - only on the rejections of the above in mid pvalue non adaptive where alpha star smaller than alpha=0.05:
-## rejection level is taken as alpha*R/{# of families} =~ 0.04
-tbl_pa_int_each <- cbind(select(tbl_pa_each,Outcome,pa_mid_non_adp.pa_BH_alpha),tbl_p_int) %>%
-  group_by(Outcome) %>%
-  filter(pa_mid_non_adp.pa_BH_alpha <= 0.04) %>% 
-  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05))
-
-## results tables - number of rejected, family sizes and pi0 estimates:
-tb_results_each <- tbl_pa_each %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
-  summarise_each(funs(sum(.<=0.04)))
-tb_results_each_fam <- tbl_pa_each %>% select(starts_with("fam")) %>% 
-  summarise_each(funs(head(.,n = 1)))
-tb_results_each_pi0 <- tbl_pa_each %>% select(starts_with("pi0")) %>% 
-  summarise_each(funs(head(.,n = 1)))
-
-## results tables - number of rejected, family sizes and pi0 estimates:
-tb_results_each_int <- tbl_pa_int_each %>% select(-starts_with("pi0"),-starts_with("fam")) %>% 
-  summarise_each(funs(sum(.<=0.05))) 
-tb_results_each_int_fam <- tbl_pa_int_each %>% select(starts_with("fam")) %>% 
-  summarise_each(funs(head(.,n = 1)))
-tb_results_each_int_pi0 <- tbl_pa_int_each %>% select(starts_with("pi0")) %>% 
-  summarise_each(funs(head(.,n = 1)))
-
-## consice results (only families sizes and # of rejections):
-xjoin <- select(tb_results_each,Outcome,main_effect_rej = pa_mid_non_adp.pa_BH_alpha) %>% 
-  cbind(select(tb_results_each_fam,main_effect_size = fam_size.2),.)
-yjoin <- select(tb_results_each_int,Outcome,interaction_rej = pa_mid_non_adp.pa_BH_alpha) %>% 
-  cbind(select(tb_results_each_int_fam,interaction_size = fam_size.2),.)
-
-fam_sizes_n_rej <- inner_join(xjoin,yjoin)[,c(2,1,3,4,5)]
-
-## get significant tables:
-tbl_sig <- cbind(transmute(tbl_p, p_main = p, p_mid_main = p - f_n*0.5),
-                 transmute(tbl_p_int, p_int = p, p_mid_int = p - f_n*0.5),
-                 tbl_222_sorted,
-                 select(ungroup(tbl_pa_each),pa_MH = pa_mid_non_adp.pa_BH_alpha)) %>%
-  filter(pa_MH <= 0.04) %>% 
-  cbind(.,select(ungroup(tbl_pa_int_each),pa_int = pa_mid_non_adp.pa_BH_alpha)) %>% 
-  filter(pa_int <= 0.05)
-
-tbl_sig_consice <- tbl_sig[,c("Outcome","Group","p_main","p_mid_main","p_int","p_mid_int")]
-tbl1 <- get_222_ftable(tbl_sig[1,])
-tbl2 <- get_222_ftable(tbl_sig[2,])
-tbl3 <- get_222_ftable(tbl_sig[3,])
-save(fam_sizes_n_rej,tbl_sig,tbl_sig_consice,tbl1,tbl2,tbl3,file = "objects_to_report.RData")
-```
-
-```{r print_tables, include = T, eval = T, results='asis'}
-load("objects_to_report.RData")
-kable(fam_sizes_n_rej)
-kable(tbl_sig_consice)
-kable(as.matrix(tbl1))
-kable(as.matrix(tbl2))
-kable(as.matrix(tbl3))
-```
-
-```{r simulation_all_true_nulls}
-# get tbl_222_sorted
-B <- 2000
-sim_result_list <- tbl_p_list <- list()
-index_seed <- as.numeric(tbl_222_sorted$Outcome)
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp()
-tbl_p   <-   tbl_pdf %>% data.frame(.,select(tbl_222_sorted,n111,n112)) %>%
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)}%>% 
-  cbind(.,select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
-  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K <- select(tbl_pa_each_first,fam_size.3)
-
-for (b in 1:B)
-{ 
-  cat(b,"\n")
-  tbl_222_sim <- tbl_222_sorted %>%
-    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-           n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-  tbl_p <-   tbl_pdf %>% data.frame(.,select(tbl_222_sim,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
-  cbind(.,select(tbl_222_sorted,Outcome))
-  tbl_pa_each_sim <- tbl_p %>% tbl_df() %>% cbind(.,select(tbl_pdf,alpha_star),select(tbl_K,fam_size.3)) %>%
-    group_by(Outcome) %>% do(p_adjust_sim(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n,alpha = 0.05,rr = 100,
-                                      Kvec = .$fam_size.3,index_for_seed = index_seed+b*max(index_seed)))
-  sim_result_list[[b]] <- tbl_pa_each_sim
-}
-
-sim_result_list_100<-sim_result_list[1:100]
-save(sim_result_list_100,file="sim_all_true_null_100_result_list.RData")
-
-get_n_Rej <- function(y) as.data.frame(t(colSums(y<=0.05)))
-# summarize results:
-nRej  <- lapply(sim_result_list, function(x) {x %>% group_by(Outcome) %>% do(get_n_Rej(.[2:5]))})
-fwe  <- lapply(nRej,function(x) 1<=x[-1])
-fwe_array <- array(unlist(fwe), dim = c(nrow(fwe[[1]]), ncol(fwe[[1]]), length(fwe)))
-fwer <- apply(fwe_array,c(1,2),mean)
-fwer_se <- apply(fwe_array,c(1,2),sd)/dim(fwe_array)[3]
-fwer_results <- cbind(unique(tbl_K),fwer)
-save(fwer_results,fwer_se,file="fwer_results_all_true_null.RData")
-
-# ------- load results ----------------------------------
-
-load(file="fwer_results_all_true_null.RData")
-
-fwer_results
-
-Fusion.Of.Vertebrae|0.0680
-Maxilla|0.0645
-Clavicle|0.0610
-Femur|0.0585
-Shape.Of.Spine|0.0635
-Number.Of.Digits|0.0710
-Scoliosis|0.0725
-
-```
-
-```{r simulation_effect}
-sim_result_list <- tbl_p_list <- list()
-index_seed <- as.numeric(tbl_222_sorted$Outcome)
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
-tbl_p <-   tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
-  cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% 
-  do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K <- dplyr::select(tbl_pa_each_first,fam_size.3)
-
-library(MCMCpack)
-
-#m1 <- 100
-OR <- c(1,3,5,7)
-alpha <- 0.05
-B <- 1000
-
-# effect
-# effect_ind <- as.vector(outer(1:m1,473*(0:42),"+"))
-orig_rej <- tbl_pa_each_first %>% transmute(Rej = pa_mid_non_adp.pa_BH_alpha<=alpha)
-z_rej <- orig_rej %>% summarize(nrej = sum(Rej)) %>% filter(nrej==0)
-# modify the index to include 5 first true alt hypo in each OC where there were no rejections
-modif_rej <- orig_rej %>% mutate(Rej1 = ifelse(row_number()<=5,TRUE,Rej)) %>% 
-  mutate(Rej = ifelse(!(Outcome %in% z_rej$Outcome),Rej,Rej1))
-effect_ind <- which(modif_rej$Rej)
-
-m1 <- modif_rej %>% summarize(sum(Rej))
-
-# container [OR,B,1=FDR\2=POWER,OC,PROC]
-out <- array(dim = c(length(OR),B,2,43,8),dimnames = list(OR=OR,
-                                                          b=1:B,
-                                                          meassure=c("FDR","Power"),
-                                                          OC=1:43,
-                                                          PROC=1:8))
-
-
-get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
-
-for (k in 1:length(OR))
-{
-for (b in 1:B)
-{
-  cat(b,"\n")
-  tbl_222_sim <- tbl_222_sorted %>%
-    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-           n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-  for (ii in effect_ind)
-  {
-    tbl_222_sim[ii,1]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.11[ii],n2=tbl_222_sorted$n.21[ii],
-                                        m1=tbl_222_sorted$n111[ii]+tbl_222_sorted$n121[ii], psi = OR[k])
-    tbl_222_sim[ii,2]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.12[ii],n2=tbl_222_sorted$n.22[ii],
-                                        m1=tbl_222_sorted$n112[ii]+tbl_222_sorted$n122[ii], psi = OR[k])
-  }
-
-  tbl_p <-   tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sim,n111,n112)) %>% 
-    {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
-    cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-  
-  tbl_pa_each_sim <- tbl_p %>% tbl_df() %>%
-    cbind(.,dplyr::select(tbl_pdf,alpha_star),dplyr::select(tbl_K,fam_size.3)) %>%
-    group_by(Outcome) %>%
-    do(p_adjust_sim(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n, alpha = 0.05,rr = 100,
-                    Kvec = .$fam_size.3,index_for_seed = index_seed+b*max(index_seed)))
-  
-  R <- tbl_pa_each_sim %>% do(get_n_Rej(.[2:9]))
-  V <- tbl_pa_each_sim %>% ungroup() %>% filter(!modif_rej$Rej) %>% group_by(Outcome) %>%   do(get_n_Rej(.[2:9]))
-  S <- tbl_pa_each_sim %>% ungroup() %>% filter(modif_rej$Rej) %>% group_by(Outcome) %>%   do(get_n_Rej(.[2:9]))
-  
-  out[k,b,1,,]   <- as.matrix(V[-1]/pmax(as.matrix(R[-1]),1))
-  out[k,b,2,,]   <- as.matrix(S[-1])/m1$`sum(Rej)`
-  
-}
-}
-
-# save(out,file="sim_w_effect_results_2.RData")
-# save.image(file="sim_w_effect_results_extras_2.RData")
-
-# ---- load results -----
-rm(list = ls())
-load(file="sim_w_effect_results_2.RData")
-load(file="sim_w_effect_results_extras_2.RData")
-
-fdr <- apply(out[,,1,,,drop=F],c(4,5,1),mean)
-pwr <- apply(out[,,2,,,drop=F],c(4,5,1),mean)
-
-fdr[,,1]
-key <- tbl_K %>% summarise(unique(fam_size.3)) %>% as.data.frame()
-cbind(key,fdr[,,1])
-
-tbl_p %>% tbl_df() %>% filter(Outcome == "Clavicle") %>% .$p ->p
-
-tbl_pa_each_first %>% tbl_df() %>% filter(Outcome == "Clavicle") %>% View()
-
-F_sizes_alpha <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.1)) %>% dplyr::select(F_size)
-F_sizes_Gilb <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.2)) %>% dplyr::select(F_size)
-
-# FDR:
-par(mfrow=c(4,4))
-for(i in 1:43)
-{
-  matplot(colnames(fdr[i,c(1,3,5,7),]),t(fdr[i,c(1,3,5,7),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="fdr",ylim = c(0,0.07))
-  abline(h=0.05,col="grey")
-  if(i %in% c(16,32,43))
-  {
-    # legend("top",inset=0,legend=c("org","mid","rand","rand1"),lty = 1:4,col = 1:4, horiz = TRUE,lwd=2, cex=.5,)
-    dev.copy2pdf(file = paste0("fdr~OR_alpha_2",i,".pdf") ,height=11,width=11)
-  }
-}
-
-# Power
-par(mfrow=c(4,4))
-for(i in 1:43)
-{
-  matplot(colnames(pwr[i,c(1,3,5,7),]),t(pwr[i,c(1,3,5,7),]),type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="Avg. Power",ylim = c(0,0.2))
-  if(i %in% c(16,32,43)) dev.copy2pdf(file = paste0("Power~OR_alpha_2",i,".pdf") ,height=11,width=11)
-}
-          
-          
-```
-
-```{r simulation_effect_swap_med}
-index_seed <- as.numeric(tbl_222_sorted$Outcome)
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
-tbl_p_first <- tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>%   cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p_first %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>%   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K <- dplyr::select(tbl_pa_each_first,fam_size.3)
-
-library(MCMCpack)
-
-#m1 <- 100
-OR <- c(1,3,5,7)
-alpha <- 0.05
-B <- 10
-
-# effect_ind <- as.vector(outer(1:m1,473*(0:42),"+"))
-orig_rej <- tbl_pa_each_first %>% transmute(Rej = pa_mid_non_adp.pa_BH_alpha<=alpha)
-z_rej <- orig_rej %>% summarize(nrej = sum(Rej)) %>% filter(nrej==0)
-# modify the index to include 5 first true alt hypo in each OC where there were no rejections
-modif_rej <- orig_rej %>% mutate(Rej1 = ifelse(row_number()<=5,TRUE,Rej)) %>% 
-  mutate(Rej = ifelse(!(Outcome %in% z_rej$Outcome),Rej,Rej1))
-effect_ind <- which(modif_rej$Rej)
-
-m1 <- modif_rej %>% summarize(sum(Rej))
-
-# container [OR,B,1=FDR\2=POWER,OC,PROC]
-out3 <- array(dim = c(length(OR),B,2,43,4),dimnames = list(OR=OR,
-                                                          b=1:B,
-                                                          meassure=c("FDR","Power"),
-                                                          OC=1:43,
-                                                          PROC=1:4))
-
-out_p <- array(dim = c(B,length(OR),nrow(tbl_p_first),2),dimnames = list(b=1:B,OR=OR,
-                                                          OCxKO=1:nrow(tbl_p_first),
-                                                          PV=c("p","f_n")))
-tbl_pa_each_first_s2 <- tbl_p_first %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>% do(p_adjust_sim_2(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed,rr = 500))
-get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
-for (b in 1:B)
-{
-  cat(b,"\n")
-  set.seed(b)
-  tbl_222_sim <- tbl_222_sorted %>%
-    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-  for (k in 1:length(OR))
-  {
-    for (ii in effect_ind)
-    {
-      set.seed( k*2*B*length(effect_ind) + (b*length(effect_ind)+which(ii==effect_ind)))
-      tbl_222_sim[ii,1]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.11[ii],n2=tbl_222_sorted$n.21[ii],
-                                        m1=tbl_222_sorted$n111[ii]+tbl_222_sorted$n121[ii], psi = OR[k])
-      set.seed(k*2*B*length(effect_ind) + (2*(b*length(effect_ind)+which(ii==effect_ind))))
-      tbl_222_sim[ii,2]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.12[ii],n2=tbl_222_sorted$n.22[ii],
-                                          m1=tbl_222_sorted$n112[ii]+tbl_222_sorted$n122[ii], psi = OR[k])
-    }
-    tbl_p <-   tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sim,n111,n112)) %>% 
-      {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>% 
-      cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-    out_p[b,k,,] <- cbind(tbl_p$p,tbl_p$f_n)
-  }
-}
-
-for (b in 1:B)
-{
-  cat(b,"\n")
-  for (k in 1:length(OR))
-  {
-    tbl_pa_each_sim_swap <- out_p[b,k,,] %>% as.data.frame() %>% tbl_df() %>%
-      cbind(.,dplyr::select(tbl_pdf,alpha_star),dplyr::select(tbl_K,fam_size.3)) %>%
-      group_by(Outcome) %>%
-      do(p_adjust_sim_swap(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n, alpha = 0.05,Kvec = .$fam_size.3)
-    R <- tbl_pa_each_sim_2 %>% do(get_n_Rej(.[2:3]))
-    V <- tbl_pa_each_sim_2 %>% ungroup() %>% filter(!modif_rej$Rej) %>% group_by(Outcome) %>%   do(get_n_Rej(.[2:3]))
-    S <- tbl_pa_each_sim_2 %>% ungroup() %>% filter(modif_rej$Rej) %>% group_by(Outcome) %>%   do(get_n_Rej(.[2:3]))
-    
-    out3[k,b,1,,]   <- as.matrix(V[-1]/pmax(as.matrix(R[-1]),1))
-    out3[k,b,2,,]   <- as.matrix(S[-1])/m1$`sum(Rej)`
-  }
-}
-
-save(out2,file="sim_w_effect_results_2_2_b700_k3.RData")
-save(tbl_pa_each_sim_2,file="sim_w_effect_results_2_2_1.RData")
-save.image(file="sim_w_effect_results_extras_2_2.RData")
-
-# ---- load results -----
-rm(list=ls())
-load(file="sim_w_effect_results_2.RData")
-load(file="sim_w_effect_results_2_2_b700_k3.RData")
-load(file="sim_w_effect_results_extras_2.RData")
-  
-dimnames(out)
-dimnames(out2)
-
-F_sizes_alpha <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.1)) %>% dplyr::select(F_size)
-F_sizes_Gilb <- tbl_pa_each_sim %>% summarise(F_size=unique(fam_size.2)) %>% dplyr::select(F_size)
-
-fdr  <- apply(out[1:3,,1,filtered,c(1,3,5,7),drop=F],c(4,5,1),mean)
-pwr  <- apply(out[1:3,,2,filtered,c(1,3,5,7),drop=F],c(4,5,1),mean)
-fdr2 <- apply(out2[1:3,,1,filtered,1,drop=F],c(4,5,1),mean,na.rm=T)
-pwr2 <- apply(out2[1:3,,2,filtered,1,drop=F],c(4,5,1),mean,na.rm=T)
-
-# FDR:
-par(mfrow=c(4,4))
-for(i in 1:sum(filtered))
-{ 
-  matplot(colnames(fdr[i,,]),
-          t(rbind(fdr[i,,],fdr2[i,,])),
-          ,type="l",sub=paste0("Outcome " ,which(filtered)[i]," |F|=",F_sizes_alpha[which(filtered)[i],1]),xlab="Odds Ratio",ylab="fdr",ylim = c(0,0.075))
-  abline(h=0.05,col="grey")
-  if(i %in% c(16,32))
-  {
-    # legend("top",inset=0,legend=c("org","mid","rand","rand1"),lty = 1:4,col = 1:4, horiz = TRUE,lwd=2, cex=.5,)
-    dev.copy2pdf(file = paste0("fdr_rand_med",i,".pdf") ,height=11,width=11)
-  }
-}
-plot(1,1,axes = n)
-legend("top",legend=c("org","mid","rand","rand1","med"),lty = 1:5,col = 1:5,lwd=2,cex = 0.8)
-dev.copy2pdf(file = paste0("fdr_rand_med",i,".pdf") ,height=11,width=11)
-    
-
-# Power
-par(mfrow=c(4,4))
-for(i in 1:sum(filtered))
-{ 
-  matplot(colnames(pwr[i,,]),
-          t(rbind(pwr[i,,],pwr2[i,,])),
-          ,type="l",sub=paste0("Outcome " ,which(filtered)[i]," |F|=",F_sizes_alpha[which(filtered)[i],1]),xlab="Odds Ratio",ylab="power",ylim = c(0,0.05))
-  
-  if(i %in% c(16,32))
-  {
-    # legend("top",inset=0,legend=c("org","mid","rand","rand1"),lty = 1:4,col = 1:4, horiz = TRUE,lwd=2, cex=.5,)
-    dev.copy2pdf(file = paste0("pwr_rand_med_scaled",i,".pdf") ,height=11,width=11)
-  }
-}
-plot(1,1,axes = n)
-legend("top",legend=c("org","mid","rand","rand1","med"),lty = 1:5,col = 1:5,lwd=2,cex = 0.8)
-dev.copy2pdf(file = paste0("pwr_rand_med_scaled",i,".pdf") ,height=11,width=11)
-```
-
 ```{r simulation_swap_x}
 index_seed <- as.numeric(tbl_222_sorted$Outcome)
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
+tbl_pdf <- tbl_222_sorted %>% MH_get_pdf_and_supp(.)
 tbl_p_first <- tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>%   cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p_first %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>%   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K1 <- dplyr::select(tbl_pa_each_first,fam_size.2)
+  {MH_get_pv(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>%   cbind(.,dplyr::select(tbl_222_sorted,Outcome))
+tbl_pa_each_first <- tbl_p_first %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>%   do(p_adjust_sim(p = .$p,alpha_star = .$alpha_star,f_n = .$f_n,alpha = 0.05,Kvec = NULL))
+K <- data.frame(Outcome = tbl_p_first$Outcome,K = tbl_pa_each_first$fam_size.1) %>% 
+  tbl_df() %>% 
+  group_by(Outcome) %>% 
+  summarize(K = unique(K))
 
 get_supp <- function(df)
 {
@@ -1079,7 +394,7 @@ get_supp <- function(df)
 supp <- get_supp(tbl_222_sorted)
 n <- supp[,2]
 
-get_222_ftable(tbl_222_sorted[which(n==0)[500],])
+#print_ftable(tbl_222_sorted[which(n==0)[500],])
 
 library(MCMCpack)
 
@@ -1089,226 +404,96 @@ alpha <- 0.05
 B <- 1000
 
 # effect_ind <- as.vector(outer(1:m1,473*(0:42),"+"))
-orig_rej <- tbl_pa_each_first %>% transmute(Rej = pa_mid_non_adp.pa_BH_alpha<=alpha)
-z_rej <- orig_rej %>% summarize(nrej = sum(Rej)) %>% filter(nrej==0)
-# modify the index to include 5 first true alt hypo in each OC where there were no rejections
-modif_rej <- orig_rej %>% mutate(Rej1 = ifelse(row_number()<=5,TRUE,Rej)) %>% 
-  mutate(Rej = ifelse(!(Outcome %in% z_rej$Outcome),Rej,Rej1))
-effect_ind <- which(modif_rej$Rej)
+original_rejections <- tbl_pa_each_first %>%
+  transmute(orig_rej = pa_mid.pa_BH_alpha<=alpha)
+has_zero_rejections <- original_rejections %>%
+  summarize(nrej = sum(orig_rej)) %>%
+  filter(nrej==0)
 
-modif_rej %>% ungroup() %>% filter(n>=1 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) -> H_filtered1
-modif_rej %>% ungroup() %>% filter(n>=5 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) -> H_filtered2
-
-H1_filtered1 <- H_filtered1$Rej
-H1_filtered2 <- H_filtered2$Rej
+# insert true alternative where there are original rejections OR insert in the first five hypotheses where otucome has no rejections
+true_alt  <- original_rejections %>%
+  mutate(first5true = ifelse(row_number()<=5,TRUE,orig_rej)) %>% 
+  mutate(true_alt = ifelse(!(Outcome %in% has_zero_rejections$Outcome),orig_rej,first5true))
+effect_ind <- which(true_alt$true_alt)
+H1 <- true_alt$true_alt
+F_alpha <- tbl_pa_each_first$fam_size.1 >= 10
 
 # container [OR,B,1=FDR\2=POWER,OC,PROC]
-out_x <- array(dim = c(B,length(OR),nrow(tbl_p_first)),dimnames = list(b=1:B,OR=OR,
-                                                          OCxKO=1:nrow(tbl_p_first)))
-
+# out_x <- array(dim = c(B,length(OR),nrow(tbl_p_first)),dimnames = list(b=1:B,OR=OR,
+#                                                           OCxKO=1:nrow(tbl_p_first)))
+load(file = "sim_w_effect_results_swap_x.RData")
+out_x_swap <- array(dim = c(B,nrow(tbl_p_first)),dimnames = list(b=1:B,                                                  OCxKO=1:nrow(tbl_p_first)))
 out3 <- array(dim = c(B,length(OR),2,35,2),dimnames = list(b=1:B,OR=OR,data=c("full","cleaned"),OC=1:35,
                                                           meassure=c("FDR","Power")))
-
 get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
+b=1
+k=1
 
 for (b in 1:B)
 {
   cat(b,"\n")
-  set.seed(b)
-  tbl_222_sim <- tbl_222_sorted %>%
-    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-   for (k in 1:length(OR))
-   {
-    for (ii in effect_ind)
+#   set.seed(b)
+#   tbl_222_sim <- tbl_222_sorted %>%
+#     transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
+#               n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
+  set.seed(-b)
+  tbl_222_sim_swap <- tbl_222_sorted %>%
+     transmute(n111_swap = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
+               n112_swap = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
+  out_x_swap[b,] <- tbl_222_sim_swap$n111_swap+tbl_222_sim_swap$n112_swap
+  for (k in 1:length(OR))
     {
-      set.seed( k*2*B*length(effect_ind) + (b*length(effect_ind)+which(ii==effect_ind)))
-      tbl_222_sim[ii,1]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.11[ii],n2=tbl_222_sorted$n.21[ii],
-                                        m1=tbl_222_sorted$n111[ii]+tbl_222_sorted$n121[ii], psi = OR[k])
-      set.seed(k*2*B*length(effect_ind) + (2*(b*length(effect_ind)+which(ii==effect_ind))))
-      tbl_222_sim[ii,2]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.12[ii],n2=tbl_222_sorted$n.22[ii],
-                                          m1=tbl_222_sorted$n112[ii]+tbl_222_sorted$n122[ii], psi = OR[k])
-    }
-    out_x[b,k,] <- tbl_222_sim$n111+tbl_222_sim$n112
+#     for (ii in effect_ind)
+#     {
+#       set.seed( k*2*B*length(effect_ind) + (b*length(effect_ind)+which(ii==effect_ind)))
+#       tbl_222_sim[ii,1]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.11[ii],n2=tbl_222_sorted$n.21[ii],
+#                                         m1=tbl_222_sorted$n111[ii]+tbl_222_sorted$n121[ii], psi = OR[k])
+#       set.seed(k*2*B*length(effect_ind) + (2*(b*length(effect_ind)+which(ii==effect_ind))))
+#       tbl_222_sim[ii,2]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.12[ii],n2=tbl_222_sorted$n.22[ii],
+#                                           m1=tbl_222_sorted$n112[ii]+tbl_222_sorted$n122[ii], psi = OR[k])
+#     }
+#     out_x[b,k,] <- tbl_222_sim$n111+tbl_222_sim$n112
     
-    df_x <- cbind(dplyr::select(tbl_222_sorted,Outcome), x = out_x[b,k,], n = n) %>%
+    df_x <- cbind(dplyr::select(tbl_222_sorted,Outcome), x = out_x[b,k,], x_swap = out_x_swap[b,]) %>%
       tbl_df() %>%
-      filter(n>=1 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) %>%
-      group_by(Outcome)
-    
-    df_x %>%  do(data.frame(R=swap_x(x = .$x,n = .$n))) -> R1
-    df_x %>%  filter(n>=5) %>% do(data.frame(R=swap_x(x = .$x,n = .$n))) -> R2
+      filter(F_alpha) 
 
-    fdr1 <- cbind(R1,H1 = H1_filtered1) %>% group_by(Outcome) %>%   summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
-    fdr2 <- cbind(R2,H1 = H1_filtered2) %>% group_by(Outcome) %>%   summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
+      
+#     table(out_x[1,3,effect_ind])/sum(table(out_x[1,3,effect_ind]))
+#     table(out_x[1,3,])/sum(table(out_x[1,3,]))
     
-    power1 <- cbind(R1,H1 = H1_filtered1) %>% group_by(Outcome) %>%   summarise(power = sum(R & (H1))/sum(H1))
-    power2 <- cbind(R2,H1 = H1_filtered2) %>% group_by(Outcome) %>%   summarise(power = sum(R & (H1))/sum(H1))
+    R1 <- df_x %>%
+      filter(n[F_alpha]>=1) %>%
+      group_by(Outcome) %>% 
+      do(data.frame(R=swap_x_v2(x = .$x, x_swap = .$x_swap)))
+    
+    R2 <- df_x %>%
+      filter(n[F_alpha]>=5) %>%
+      group_by(Outcome) %>% 
+      do(data.frame(R=swap_x_v2(x = .$x, x_swap = .$x_swap)))
+    
+    fdr1 <- cbind(R1,H1 = H1[n>=1 & F_alpha]) %>% group_by(Outcome) %>%
+      summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
+    fdr2 <- cbind(R2,H1 = H1[n>=5 & F_alpha]) %>% group_by(Outcome) %>%
+      summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
+    
+    power1 <- cbind(R1,H1 = H1[n>=1 & F_alpha]) %>% group_by(Outcome) %>%
+      summarise(power = sum(R & (H1))/sum(H1))
+    power2 <- cbind(R2,H1 = H1[n>=5 & F_alpha]) %>% group_by(Outcome) %>%
+      summarise(power = sum(R & (H1))/sum(H1))
     
     out3[b,k,1,,]   <- cbind(fdr1$fdr,power1$power)
     out3[b,k,2,1:28,]   <- cbind(fdr2$fdr,power2$power)
   }
 }
 
-
-# n
-#    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   18   21 
-# 3811 2055 1911 1505  517   70  881  563  549 1644  117  103  485 1109 4840  133   35    2    9 
-
-
-save(out3,out_x,file="sim_w_effect_results_swap_x.RData")
-save.image(file="sim_w_effect_results_swap_x_extras.RData")
+save(out3,file="sim_w_effect_results_swap_x_v2.RData")
+save.image(file="sim_w_effect_results_swap_x_v2_extras.RData")
 
 # ---- load results -----
-dimnames(out3)
+load("sim_w_effect_results_swap_x_v2.RData")
+load("sim_w_effect_results_swap_x_v2_extras.RData")
 
-full <- apply(out3[,,1,,,drop=F],c(4,5,2),mean)
-cleaned <- apply(out3[,,2,,,drop=F],c(4,5,2),mean)
-
-# FDR:
-par(mfrow=c(4,4))
-for(i in 1:43)
-{ 
-  matplot(colnames(fdr[i,c(1,3,5,7),]),
-          t(fdr2[i,c(1,3),]),
-          ,type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="fdr",ylim = c(0,1))
-  abline(h=0.05,col="grey")
-#   if(i %in% c(16,32,43))
-#   {
-#     # legend("top",inset=0,legend=c("org","mid","rand","rand1"),lty = 1:4,col = 1:4, horiz = TRUE,lwd=2, cex=.5,)
-#     dev.copy2pdf(file = paste0("fdr~OR_alpha_2",i,".pdf") ,height=11,width=11)
-#   }
-}
-plot(1,1,axes = n)
-legend("top",legend=c("org","mid","rand","rand1","med","swap"),lty = 1:6,col = 1:6,lwd=2)
-
-# cbind( t(fdr[i,c(1,3,5,7),]),
-
-# Power
-par(mfrow=c(4,4))
-for(i in 1:43)
-{
-  matplot(colnames(pwr[i,c(1,3,5,7),]),
-          t(pwr2[i,c(1,3),]),
-          ,type="l",sub=paste0("Outcome " ,i," |F|=",F_sizes_alpha[i,1]),xlab="Odds Ratio",ylab="Avg. Power",ylim = c(0,1))
-#   if(i %in% c(16,32,43)) dev.copy2pdf(file = paste0("Power~OR_alpha_2",i,".pdf") ,height=11,width=11)
-}
-plot(1,1,axes = n)
-legend("top",legend=c("org","mid","rand","rand1","med","swap"),lty = 1:6,col = 1:6,lwd=2)
-# cbind( t(pwr[i,c(1,3,5,7),]),
-```
-
-```{r simulation_swap_x}
-index_seed <- as.numeric(tbl_222_sorted$Outcome)
-tbl_pdf <- tbl_222_sorted %>% get_cond_test_pdf_supp(.)
-tbl_p_first <- tbl_pdf %>% data.frame(.,dplyr::select(tbl_222_sorted,n111,n112)) %>% 
-  {get_cond_test_pvs(pdf_list = .$pdf_list,supp_list = .$supp_list, xx1 = .$n111, xx2 = .$n112)} %>%   cbind(.,dplyr::select(tbl_222_sorted,Outcome))
-tbl_pa_each_first <- tbl_p_first %>% tbl_df() %>% cbind(.,dplyr::select(tbl_pdf,alpha_star)) %>%  group_by(Outcome) %>%   do(p_adjust(.$p,.$alpha_star,.$f_n,.$kappa,alpha = 0.05,Kvec = NULL,index_for_seed = index_seed))
-tbl_K1 <- dplyr::select(tbl_pa_each_first,fam_size.2)
-
-get_supp <- function(df)
-{
-  mm1 <- df$n111 + df$n121 # = n1.1
-  mm2 <- df$n112 + df$n122 # = n1.2
-  ## not deformed in KO and WT (F and  M)
-  nn1 <- df$n211 + df$n221 # = n2.1
-  nn2 <- df$n212 + df$n222 # = n2.2
-  ## in KO deformed and not deformed(F and M) : total in hand
-  kk1 <- df$n.11
-  kk2 <- df$n.12
-  
-  BB1  <- pmin(mm1,kk1)
-  BB2  <- pmin(mm2,kk2)
-  AA1  <- pmax(0,kk1-nn1)
-  AA2  <- pmax(0,kk2-nn2)
-
-  cbind(AA1+AA2,BB1+BB2)
-}
-
-supp <- get_supp(tbl_222_sorted)
-n <- supp[,2]
-
-get_222_ftable(tbl_222_sorted[which(n==0)[500],])
-
-library(MCMCpack)
-
-#m1 <- 100
-OR <- c(1,3,5,7)
-alpha <- 0.05
-B <- 1000
-
-# effect_ind <- as.vector(outer(1:m1,473*(0:42),"+"))
-orig_rej <- tbl_pa_each_first %>% transmute(Rej = pa_mid_non_adp.pa_BH_alpha<=alpha)
-z_rej <- orig_rej %>% summarize(nrej = sum(Rej)) %>% filter(nrej==0)
-# modify the index to include 5 first true alt hypo in each OC where there were no rejections
-modif_rej <- orig_rej %>% mutate(Rej1 = ifelse(row_number()<=5,TRUE,Rej)) %>% 
-  mutate(Rej = ifelse(!(Outcome %in% z_rej$Outcome),Rej,Rej1))
-effect_ind <- which(modif_rej$Rej)
-
-modif_rej %>% ungroup() %>% filter(n>=1 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) -> H_filtered1
-modif_rej %>% ungroup() %>% filter(n>=5 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) -> H_filtered2
-
-H1_filtered1 <- H_filtered1$Rej
-H1_filtered2 <- H_filtered2$Rej
-
-# container [OR,B,1=FDR\2=POWER,OC,PROC]
-out_x <- array(dim = c(B,length(OR),nrow(tbl_p_first)),dimnames = list(b=1:B,OR=OR,
-                                                          OCxKO=1:nrow(tbl_p_first)))
-
-out3 <- array(dim = c(B,length(OR),2,35,2),dimnames = list(b=1:B,OR=OR,data=c("full","cleaned"),OC=1:35,
-                                                          meassure=c("FDR","Power")))
-
-get_n_Rej <- function(y) as.data.frame(t(colSums(y<=alpha)))
-
-for (b in 1:B)
-{
-  cat(b,"\n")
-  set.seed(b)
-  tbl_222_sim <- tbl_222_sorted %>%
-    transmute(n111 = rhyper(nn = nrow(.),n = n211 + n221,m = n121 + n111,k = n.11),
-              n112 = rhyper(nn = nrow(.),n = n212 + n222,m = n112 + n122,k = n.12))
-   for (k in 1:length(OR))
-   {
-    for (ii in effect_ind)
-    {
-      set.seed( k*2*B*length(effect_ind) + (b*length(effect_ind)+which(ii==effect_ind)))
-      tbl_222_sim[ii,1]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.11[ii],n2=tbl_222_sorted$n.21[ii],
-                                        m1=tbl_222_sorted$n111[ii]+tbl_222_sorted$n121[ii], psi = OR[k])
-      set.seed(k*2*B*length(effect_ind) + (2*(b*length(effect_ind)+which(ii==effect_ind))))
-      tbl_222_sim[ii,2]<-rnoncenhypergeom(n=1,n1=tbl_222_sorted$n.12[ii],n2=tbl_222_sorted$n.22[ii],
-                                          m1=tbl_222_sorted$n112[ii]+tbl_222_sorted$n122[ii], psi = OR[k])
-    }
-    out_x[b,k,] <- tbl_222_sim$n111+tbl_222_sim$n112
-    
-    df_x <- cbind(dplyr::select(tbl_222_sorted,Outcome), x = out_x[b,k,], n = n) %>%
-      tbl_df() %>%
-      filter(n>=1 & tbl_K1$fam_size.2>=10 & tbl_pdf$alpha_star<=alpha) %>%
-      group_by(Outcome)
-    
-    df_x %>%  do(data.frame(R=swap_x(x = .$x,n = .$n))) -> R1
-    df_x %>%  filter(n>=5) %>% do(data.frame(R=swap_x(x = .$x,n = .$n))) -> R2
-
-    fdr1 <- cbind(R1,H1 = H1_filtered1) %>% group_by(Outcome) %>%   summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
-    fdr2 <- cbind(R2,H1 = H1_filtered2) %>% group_by(Outcome) %>%   summarise(fdr = sum(R & !(H1))/max(1,sum(R)))
-    
-    power1 <- cbind(R1,H1 = H1_filtered1) %>% group_by(Outcome) %>%   summarise(power = sum(R & (H1))/sum(H1))
-    power2 <- cbind(R2,H1 = H1_filtered2) %>% group_by(Outcome) %>%   summarise(power = sum(R & (H1))/sum(H1))
-    
-    out3[b,k,1,,]   <- cbind(fdr1$fdr,power1$power)
-    out3[b,k,2,1:28,]   <- cbind(fdr2$fdr,power2$power)
-  }
-}
-
-
-# n
-#    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   18   21 
-# 3811 2055 1911 1505  517   70  881  563  549 1644  117  103  485 1109 4840  133   35    2    9 
-
-
-save(out3,out_x,file="sim_w_effect_results_swap_x.RData")
-save.image(file="sim_w_effect_results_swap_x_extras.RData")
-
-# ---- load results -----
 dimnames(out3)
 
 full <- apply(out3[,,1,,,drop=F],c(4,5,2),mean)
